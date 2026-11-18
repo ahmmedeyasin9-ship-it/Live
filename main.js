@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Quotex Demo to Live Pro + License Client
 // @namespace    https://demotoliveadmin.lovable.app
-// @version      2.3.1
+// @version      2.4.0
 // @description  Quotex Demo to Live with fixed Demotoliveadmin License Sync & Multi-Transport API Client
 // @author       TRADER EYASIN
 // @match        *://qxbroker.com/*
@@ -25,12 +25,18 @@
   const CORS_PROXY_BASE = "https://ais-dev-ga2sdbiyy4mi4lhjhm5mwj-878201435123.asia-southeast1.run.app";
   const pageWin = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
 
-  function hasValidProxyBase() {
-    return /^https?:\/\//i.test(CORS_PROXY_BASE) && !CORS_PROXY_BASE.includes("__PROXY_" + "BASE_URL__");
+  function hasValidProxyBase(url) {
+    const val = String(url || "").trim();
+    return /^https?:\/\//i.test(val) && !val.includes("__PROXY_" + "BASE_URL__") && !/\/\/ais-dev-[^/]+\.run\.app/i.test(val);
   }
 
-  function isPrivateAiStudioDevProxy() {
-    return /\/\/ais-dev-[^/]+\.run\.app/i.test(CORS_PROXY_BASE);
+  function getActiveProxyBase() {
+    try {
+      const saved = (localStorage.getItem("qxCustomProxyUrl") || "").trim();
+      if (hasValidProxyBase(saved)) return saved.replace(/\/+$/, "");
+    } catch (e) {}
+    if (hasValidProxyBase(CORS_PROXY_BASE)) return CORS_PROXY_BASE.trim().replace(/\/+$/, "");
+    return "";
   }
 
   function getDeviceId() {
@@ -223,10 +229,52 @@
     });
   }
 
+  function hasExtensionBridge() {
+    try {
+      return !!(document.documentElement && document.documentElement.dataset && document.documentElement.dataset.qxExtBridge === "1");
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function extBridgePost(path, bodyStr) {
+    if (!hasExtensionBridge()) {
+      return Promise.resolve(null);
+    }
+    return new Promise((resolve) => {
+      const reqId = "qx_ext_" + Math.random().toString(36).slice(2) + "_" + Date.now();
+      let settled = false;
+      const done = (res) => {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener("message", onMsg);
+        clearTimeout(timer);
+        resolve(res);
+      };
+      const onMsg = (ev) => {
+        if (ev.source !== window || !ev.data || ev.data.__qxExtRes !== true || ev.data.id !== reqId) return;
+        done(ev.data.result || { ok: false, status: 0, data: { valid: false, reason: "network", detail: "Empty extension response" } });
+      };
+      const timer = setTimeout(() => {
+        done({ ok: false, status: 0, data: { valid: false, reason: "timeout", detail: "Extension background worker timed out" } });
+      }, 15000);
+      window.addEventListener("message", onMsg);
+      window.postMessage({ __qxExtReq: true, id: reqId, path: path, body: bodyStr }, "*");
+    });
+  }
+
   async function apiPost(path, payload) {
     const bodyStr = JSON.stringify(payload);
     const primaryUrl = PRIMARY_SERVER_BASE + path;
     const hasGm = !!getGmRequestFn();
+
+    // 0) If running inside our standalone MV3 Chrome/Kiwi/Lemur Extension, use background service worker (zero CORS)
+    if (hasExtensionBridge()) {
+      const extRes = await extBridgePost(path, bodyStr);
+      if (extRes && extRes.data && extRes.data.reason !== "ext_unavailable") {
+        return extRes;
+      }
+    }
 
     // 1) If running inside Tampermonkey/Violentmonkey, try GM_xmlhttpRequest first
     let gmRes = null;
@@ -238,9 +286,10 @@
       }
     }
 
-    // 2) Try CORS-enabled bridge proxy (works in Bookmarklets when public proxy URL is configured)
-    if (hasValidProxyBase() && !isPrivateAiStudioDevProxy()) {
-      const proxyRes = await fetchJson(CORS_PROXY_BASE.replace(/\/+$/, "") + path, bodyStr);
+    // 2) Try CORS-enabled bridge proxy (custom localStorage proxy OR embedded public proxy URL)
+    const activeProxy = getActiveProxyBase();
+    if (activeProxy) {
+      const proxyRes = await fetchJson(activeProxy + path, bodyStr);
       if (proxyRes && proxyRes.data && proxyRes.data.reason !== "network" && proxyRes.data.reason !== "proxy_auth_required") {
         return proxyRes;
       }
@@ -858,7 +907,7 @@
   function showNetworkErrorAlert(detailMsg, transportError) {
     let hintText = "Allow cross-origin requests in Tampermonkey for demotoliveadmin.lovable.app or check your internet.";
     if (transportError === "bookmarklet_cors_blocked" || transportError === "no_gm") {
-      hintText = "In Bookmarklet mode, your browser blocks direct requests to demotoliveadmin.lovable.app unless CORS is enabled there OR you embed a deployed public Proxy URL in the bookmarklet.";
+      hintText = "Bookmarklets cannot call demotoliveadmin.lovable.app directly due to CORS. Paste a free Proxy URL (like Cloudflare Workers or your deployed proxy) into the CORS Proxy URL box inside the popup, OR use Kiwi/Lemur/Firefox + Tampermonkey.";
     } else if (transportError === "gm_blocked" || transportError === "gm_error") {
       hintText = "Tampermonkey blocked the cross-origin request to demotoliveadmin.lovable.app. Open Tampermonkey -> Script Settings -> XHR Security and allow demotoliveadmin.lovable.app.";
     }
@@ -1478,6 +1527,7 @@
         <div id="licenseSection" class="${isActivated ? "hide" : ""}">
           <h3>License Verification</h3>
           <input type="text" id="licenseInput" placeholder="Enter your license key" value="${savedKey}">
+          <input type="url" id="proxyUrlInput" placeholder="Optional CORS Proxy URL (e.g. https://...workers.dev)" style="margin-top:6px;font-size:11px;display:${document.documentElement?.dataset?.qxExtBridge === "1" ? "none" : "block"};">
           <button id="verifyBtn">Verify License</button>
           <div id="verificationStatus">${initialBadgeHtml}</div>
         </div>
@@ -1502,6 +1552,15 @@
     document.getElementById("iblafp").value = localStorage.getItem("leaderboardBalance") || "";
     document.getElementById("profilePhotoUrl").value = localStorage.getItem("profilePhotoUrl") || "";
     document.getElementById("countryFlagSelect").value = localStorage.getItem("countryFlag") || "bd";
+    const proxyInputEl = document.getElementById("proxyUrlInput");
+    if (proxyInputEl) {
+      proxyInputEl.value = localStorage.getItem("qxCustomProxyUrl") || "";
+      proxyInputEl.addEventListener("change", () => {
+        const val = proxyInputEl.value.trim().replace(/\/+$/, "");
+        if (val) localStorage.setItem("qxCustomProxyUrl", val);
+        else localStorage.removeItem("qxCustomProxyUrl");
+      });
+    }
 
     const refreshBtn = document.getElementById("refreshBalanceBtn");
     function findBalanceElement() {
@@ -1622,6 +1681,13 @@
     btn.disabled = true;
     btn.textContent = "Verifying...";
 
+    const proxyEl = document.getElementById("proxyUrlInput");
+    if (proxyEl) {
+      const pVal = proxyEl.value.trim().replace(/\/+$/, "");
+      if (pVal) localStorage.setItem("qxCustomProxyUrl", pVal);
+      else localStorage.removeItem("qxCustomProxyUrl");
+    }
+
     const prevKey = (localStorage.getItem("appActivation") || "").trim();
     const res = await verifyLicenseKey(key, { forceActivate: prevKey !== key });
 
@@ -1731,6 +1797,12 @@
   }
   pageWinMain.__qxProLoaded = true;
   pageWinMain.__qxProOpenPopup = renderSettingsPopup;
+
+  window.addEventListener("message", (ev) => {
+    if (ev.source === window && ev.data && ev.data.__qxOpenPopup === true) {
+      renderSettingsPopup();
+    }
+  });
 
   if (!document.getElementById("qxProPopupStyles")) {
     const injectedStyleElement = document.createElement("style");
