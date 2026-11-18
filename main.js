@@ -524,16 +524,13 @@
     setTimeout(() => switchToDemo(1), 200);
   }
 
-  if (typeof Swal === "undefined") {
+  if (typeof Swal === "undefined" && !document.getElementById("qxSwalCdnScript")) {
     try {
-      await new Promise((resolve) => {
-        const script = document.createElement("script");
-        script.src = "https://cdn.jsdelivr.net/npm/sweetalert2@11";
-        script.onload = resolve;
-        script.onerror = resolve;
-        setTimeout(resolve, 4000);
-        document.head.appendChild(script);
-      });
+      const script = document.createElement("script");
+      script.id = "qxSwalCdnScript";
+      script.src = "https://cdn.jsdelivr.net/npm/sweetalert2@11";
+      script.async = true;
+      (document.head || document.documentElement).appendChild(script);
     } catch (e) {}
   }
 
@@ -1419,25 +1416,13 @@
     const existing = document.getElementById("settingsPopup");
     if (existing) existing.remove();
 
-    const status = await checkStoredActivation();
-    isActivated = !!status.valid;
     const savedKey = (localStorage.getItem("appActivation") || localStorage.getItem("active_license_key") || "").trim();
+    const hasSavedToken = !!(savedKey && (localStorage.getItem("appDeviceToken") || localStorage.getItem("active_device_token")));
+    isActivated = hasSavedToken;
 
-    let statusBadgeHtml = '<div class="unverified-badge">✗ Not Verified</div>';
-    if (isActivated) {
-      statusBadgeHtml = status.offline
-        ? '<div class="verified-badge">✓ Verified (Offline Mode)</div>'
-        : '<div class="verified-badge">✓ Verified</div>';
-    } else if (status.reason === "limit") {
-      statusBadgeHtml = '<div class="unverified-badge">✗ Device Limit Reached</div>';
-    } else if (status.reason === "banned") {
-      statusBadgeHtml = '<div class="unverified-badge">✗ License Blocked</div>';
-    } else if (status.reason === "expired") {
-      statusBadgeHtml = '<div class="unverified-badge">✗ License Expired</div>';
-    } else if (status.reason === "network") {
-      statusBadgeHtml = '<div class="unverified-badge">✗ Network / XHR Blocked</div>';
-    } else if (savedKey && status.reason === "invalid") {
-      statusBadgeHtml = '<div class="unverified-badge">✗ Invalid License</div>';
+    let initialBadgeHtml = '<div class="unverified-badge">✗ Not Verified</div>';
+    if (savedKey) {
+      initialBadgeHtml = '<div class="verified-badge" style="background:rgba(56,189,248,0.2);color:#38bdf8;">Checking license...</div>';
     }
 
     const wrapper = document.createElement("div");
@@ -1494,7 +1479,7 @@
           <h3>License Verification</h3>
           <input type="text" id="licenseInput" placeholder="Enter your license key" value="${savedKey}">
           <button id="verifyBtn">Verify License</button>
-          <div id="verificationStatus">${statusBadgeHtml}</div>
+          <div id="verificationStatus">${initialBadgeHtml}</div>
         </div>
 
         <div id="demoBalanceSection" class="${isActivated ? "show" : ""}">
@@ -1557,8 +1542,48 @@
       if (settingsPopupContainer) settingsPopupContainer.classList.add("show");
     }, 10);
 
-    if (isActivated) {
-      startDemoToLiveEngine();
+    // Run stored license verification in the background so popup renders instantly
+    if (savedKey) {
+      checkStoredActivation().then((status) => {
+        isActivated = !!status.valid;
+        const statusBox = document.getElementById("verificationStatus");
+        const saveBtn = document.getElementById("saveButton");
+        const licSec = document.getElementById("licenseSection");
+        const demoSec = document.getElementById("demoBalanceSection");
+        const cheatBox = document.getElementById("cheatCodeDisplay");
+
+        if (isActivated) {
+          if (statusBox) {
+            statusBox.innerHTML = status.offline
+              ? '<div class="verified-badge">✓ Verified (Offline Mode)</div>'
+              : '<div class="verified-badge">✓ Verified</div>';
+          }
+          if (saveBtn) saveBtn.disabled = false;
+          if (licSec) licSec.classList.add("hide");
+          if (demoSec) demoSec.classList.add("show");
+          if (cheatBox) cheatBox.textContent = generateAliasFromName(savedKey);
+          startDemoToLiveEngine();
+        } else {
+          if (saveBtn) saveBtn.disabled = true;
+          if (licSec) licSec.classList.remove("hide");
+          if (demoSec) demoSec.classList.remove("show");
+          if (statusBox) {
+            if (status.reason === "limit") {
+              statusBox.innerHTML = '<div class="unverified-badge">✗ Device Limit Reached</div>';
+              showDeviceMismatchAlert(status.allowed, status.used);
+            } else if (status.reason === "banned") {
+              statusBox.innerHTML = '<div class="unverified-badge">✗ License Blocked</div>';
+              showLicenseExpiredAlert();
+            } else if (status.reason === "expired") {
+              statusBox.innerHTML = '<div class="unverified-badge">✗ License Expired</div>';
+            } else if (status.reason === "network") {
+              statusBox.innerHTML = '<div class="unverified-badge">✗ ' + (status.transportError === "bookmarklet_cors_blocked" ? "CORS Blocked (Bookmarklet)" : "Network / XHR Blocked") + '</div>';
+            } else {
+              statusBox.innerHTML = '<div class="unverified-badge">✗ Invalid License</div>';
+            }
+          }
+        }
+      }).catch(() => {});
     }
   }
 
@@ -1714,12 +1739,9 @@
     (document.head || document.documentElement).appendChild(injectedStyleElement);
   }
 
-  const startupStatus = await checkStoredActivation();
-  if (startupStatus.valid === false && startupStatus.reason === "banned") {
-    showLicenseExpiredAlert();
-  } else if (startupStatus.valid === false && startupStatus.reason === "limit") {
-    showDeviceMismatchAlert(startupStatus.allowed, startupStatus.used);
-  }
-
   await renderSettingsPopup();
-})();
+})().catch((err) => {
+  try {
+    console.error("Quotex Pro Error:", err);
+  } catch (e) {}
+});
