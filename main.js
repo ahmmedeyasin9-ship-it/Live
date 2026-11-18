@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Quotex Demo to Live Pro + License Client
 // @namespace    https://demotoliveadmin.lovable.app
-// @version      2.3.0
-// @description  Quotex Demo to Live with fixed Demotoliveadmin License Sync & CORS Proxy Fallback
+// @version      2.3.1
+// @description  Quotex Demo to Live with fixed Demotoliveadmin License Sync & Multi-Transport API Client
 // @author       TRADER EYASIN
 // @match        *://qxbroker.com/*
 // @match        *://quotex.io/*
@@ -15,7 +15,8 @@
 // @grant        GM.xmlHttpRequest
 // @grant        unsafeWindow
 // @connect      demotoliveadmin.lovable.app
-// @connect      *
+// @connect      *.lovable.app
+// @connect      *.run.app
 // @run-at       document-start
 // ==/UserScript==
 
@@ -26,6 +27,10 @@
 
   function hasValidProxyBase() {
     return /^https?:\/\//i.test(CORS_PROXY_BASE) && !CORS_PROXY_BASE.includes("__PROXY_" + "BASE_URL__");
+  }
+
+  function isPrivateAiStudioDevProxy() {
+    return /\/\/ais-dev-[^/]+\.run\.app/i.test(CORS_PROXY_BASE);
   }
 
   function getDeviceId() {
@@ -64,23 +69,98 @@
         const text = await res.text();
         const parsed = parseJsonSafe(text);
         if (!parsed) {
-          return { ok: false, status: res.status, data: { valid: false, reason: "invalid_response" } };
+          const looksLikeHtml = /^\s*</.test(text) || /__cookie_check|302 Found|<!doctype/i.test(text);
+          return {
+            ok: false,
+            status: res.status,
+            data: {
+              valid: false,
+              reason: looksLikeHtml ? "proxy_auth_required" : "invalid_response",
+              detail: looksLikeHtml ? "Proxy returned HTML login/redirect instead of JSON" : "Non-JSON response"
+            }
+          };
         }
         return { ok: res.ok && !!parsed.valid, status: res.status, data: parsed };
       })
-      .catch(() => ({ ok: false, status: 0, data: { valid: false, reason: "network" } }));
+      .catch((err) => ({
+        ok: false,
+        status: 0,
+        data: {
+          valid: false,
+          reason: "network",
+          detail: err && err.message ? err.message : "CORS or network error"
+        }
+      }));
+  }
+
+  function getGmRequestFn() {
+    if (typeof GM_xmlhttpRequest === "function") return GM_xmlhttpRequest;
+    if (typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function") return GM.xmlHttpRequest;
+    return null;
   }
 
   function gmPost(url, bodyStr) {
-    const gmReq = typeof GM_xmlhttpRequest === "function"
-      ? GM_xmlhttpRequest
-      : (typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function" ? GM.xmlHttpRequest : null);
-
-    if (!gmReq) return Promise.resolve(null);
+    const gmReq = getGmRequestFn();
+    if (!gmReq) {
+      return Promise.resolve({
+        ok: false,
+        status: 0,
+        data: { valid: false, reason: "no_gm", detail: "GM_xmlhttpRequest not available in this browser/injector" }
+      });
+    }
 
     return new Promise((resolve) => {
+      let settled = false;
+      const done = (result) => {
+        if (settled) return;
+        settled = true;
+        resolve(result);
+      };
+
+      const timer = setTimeout(() => {
+        done({
+          ok: false,
+          status: 0,
+          data: { valid: false, reason: "timeout", detail: "GM_xmlhttpRequest timed out" }
+        });
+      }, 15000);
+
+      const handleResponse = (res) => {
+        clearTimeout(timer);
+        if (!res || res.status === 0) {
+          done({
+            ok: false,
+            status: 0,
+            data: {
+              valid: false,
+              reason: "gm_blocked",
+              detail: "Cross-origin request blocked or failed (status 0). Allow domain in Tampermonkey."
+            }
+          });
+          return;
+        }
+        const parsed = parseJsonSafe(res.responseText);
+        if (!parsed) {
+          done({
+            ok: false,
+            status: res.status,
+            data: {
+              valid: false,
+              reason: "invalid_response",
+              detail: "Server returned HTTP " + res.status + " non-JSON response"
+            }
+          });
+          return;
+        }
+        done({
+          ok: res.status >= 200 && res.status < 300 && !!parsed.valid,
+          status: res.status,
+          data: parsed
+        });
+      };
+
       try {
-        gmReq({
+        const maybePromise = gmReq({
           method: "POST",
           url: url,
           headers: {
@@ -88,32 +168,57 @@
             "Accept": "application/json"
           },
           data: bodyStr,
-          timeout: 12000,
-          onload: function(res) {
-            if (!res || res.status === 0) {
-              resolve(null);
-              return;
-            }
-            const parsed = parseJsonSafe(res.responseText);
-            if (!parsed) {
-              resolve(null);
-              return;
-            }
-            resolve({
-              ok: res.status >= 200 && res.status < 300 && !!parsed.valid,
-              status: res.status,
-              data: parsed
+          anonymous: true,
+          timeout: 14000,
+          onload: handleResponse,
+          onerror: function(err) {
+            clearTimeout(timer);
+            done({
+              ok: false,
+              status: (err && err.status) || 0,
+              data: {
+                valid: false,
+                reason: "gm_error",
+                detail: (err && (err.error || err.statusText)) || "GM_xmlhttpRequest error (check Tampermonkey @connect permission)"
+              }
             });
           },
-          onerror: function() {
-            resolve(null);
-          },
           ontimeout: function() {
-            resolve(null);
+            clearTimeout(timer);
+            done({
+              ok: false,
+              status: 0,
+              data: { valid: false, reason: "timeout", detail: "GM_xmlhttpRequest timed out" }
+            });
           }
         });
+
+        // Support Promise-based GM.xmlHttpRequest (Greasemonkey 4 / Violentmonkey)
+        if (maybePromise && typeof maybePromise.then === "function") {
+          maybePromise.then(handleResponse).catch((err) => {
+            clearTimeout(timer);
+            done({
+              ok: false,
+              status: 0,
+              data: {
+                valid: false,
+                reason: "gm_error",
+                detail: (err && err.message) || "GM.xmlHttpRequest rejected"
+              }
+            });
+          });
+        }
       } catch (err) {
-        resolve(null);
+        clearTimeout(timer);
+        done({
+          ok: false,
+          status: 0,
+          data: {
+            valid: false,
+            reason: "gm_error",
+            detail: (err && err.message) || "GM_xmlhttpRequest threw exception"
+          }
+        });
       }
     });
   }
@@ -122,22 +227,42 @@
     const bodyStr = JSON.stringify(payload);
     const primaryUrl = PRIMARY_SERVER_BASE + path;
 
-    // 1) Try native Tampermonkey GM_xmlhttpRequest first (bypasses CORS if allowed)
+    // 1) Try native Tampermonkey/Violentmonkey GM_xmlhttpRequest first (bypasses CORS directly)
     const gmRes = await gmPost(primaryUrl, bodyStr);
-    if (gmRes && gmRes.data && gmRes.data.reason !== "network") {
+    const gmReason = gmRes && gmRes.data && gmRes.data.reason;
+    if (gmRes && gmRes.data && gmReason !== "no_gm" && gmReason !== "gm_blocked" && gmReason !== "gm_error" && gmReason !== "timeout" && gmReason !== "invalid_response") {
       return gmRes;
     }
 
-    // 2) Fallback to CORS-enabled bridge proxy (works in mobile browsers & without GM_xmlhttpRequest)
-    if (hasValidProxyBase()) {
+    // 2) Fallback to CORS-enabled bridge proxy (works when public proxy URL is configured)
+    if (hasValidProxyBase() && !isPrivateAiStudioDevProxy()) {
       const proxyRes = await fetchJson(CORS_PROXY_BASE.replace(/\/+$/, "") + path, bodyStr);
-      if (proxyRes && proxyRes.data && proxyRes.data.reason !== "network") {
+      if (proxyRes && proxyRes.data && proxyRes.data.reason !== "network" && proxyRes.data.reason !== "proxy_auth_required") {
         return proxyRes;
       }
     }
 
-    // 3) Last-resort direct fetch
-    return await fetchJson(primaryUrl, bodyStr);
+    // 3) Last-resort direct fetch (works if demotoliveadmin adds CORS headers)
+    const directRes = await fetchJson(primaryUrl, bodyStr);
+    if (directRes && directRes.data && directRes.data.reason !== "network" && directRes.data.reason !== "invalid_response") {
+      return directRes;
+    }
+
+    // Return the most informative failure reason
+    if (gmReason === "no_gm" || gmReason === "gm_blocked" || gmReason === "gm_error") {
+      return {
+        ok: false,
+        status: 0,
+        data: {
+          valid: false,
+          reason: "network",
+          transport_error: gmReason,
+          detail: gmRes.data.detail
+        }
+      };
+    }
+
+    return directRes;
   }
 
   async function activateLicense(licenseKey) {
@@ -382,7 +507,6 @@
     setTimeout(() => switchToDemo(1), 200);
   }
 
-  // Safely load SweetAlert2 without crashing if CDN fails
   if (typeof Swal === "undefined") {
     try {
       await new Promise((resolve) => {
@@ -463,7 +587,7 @@
       const res = await window.AppLicense.apiPost("/api/public/license/" + endpoint, payload);
       return res && res.data ? res.data : { valid: false, reason: "network" };
     }
-    return { valid: false, reason: "network" };
+    return { valid: false, reason: "network", detail: "AppLicense bridge missing" };
   }
 
   async function verifyLicenseKey(rawKey, options) {
@@ -533,12 +657,18 @@
 
       const reason = String((result && result.reason) || "").toLowerCase();
 
-      if (reason === "network" || reason === "timeout" || reason === "invalid_response") {
+      if (reason === "network" || reason === "timeout" || reason === "invalid_response" || reason === "proxy_auth_required") {
         if (storedKey === key && storedToken) {
           isActivated = true;
           return { valid: true, key: key, offline: true };
         }
-        return { valid: false, reason: "network", keepLicense: storedKey === key };
+        return {
+          valid: false,
+          reason: "network",
+          transportError: result && result.transport_error,
+          detail: result && result.detail,
+          keepLicense: storedKey === key
+        };
       }
 
       if (reason === "device_blocked" || reason === "banned" || reason === "license_banned" || reason === "blocked" || reason === "revoked") {
@@ -620,7 +750,7 @@
           <div style="background: rgba(255, 107, 107, 0.15); padding: 15px; margin: 15px 0; border-radius: 10px; text-align: left;">
             <p style="margin: 0; font-size: 15px; color: #ff6b6b; font-weight: 700;">Maximum Devices Used!</p>
             <p style="margin: 10px 0 0 0; font-size: 13px; color: rgba(255,255,255,0.9); line-height: 1.5;">
-              Your license has reached the maximum device limit (${used} / ${allowed}). Reset devices in your admin dashboard or contact developer.
+              Your license has reached the maximum device limit (${used} / ${allowed}). Reset devices in demotoliveadmin.lovable.app or generate a new key.
             </p>
           </div>
           <div style="background: rgba(249, 0, 255, 0.1); padding: 12px; border-radius: 10px;">
@@ -711,7 +841,14 @@
     });
   }
 
-  function showNetworkErrorAlert() {
+  function showNetworkErrorAlert(detailMsg, transportError) {
+    let hintText = "Allow cross-origin requests in Tampermonkey for demotoliveadmin.lovable.app or check your internet.";
+    if (transportError === "no_gm") {
+      hintText = "GM_xmlhttpRequest is missing! Install this script inside Tampermonkey/Violentmonkey (do not run as plain console paste) or use a public CORS proxy URL.";
+    } else if (transportError === "gm_blocked" || transportError === "gm_error") {
+      hintText = "Tampermonkey blocked the cross-origin request to demotoliveadmin.lovable.app. Open Tampermonkey -> Script Settings -> XHR Security and allow demotoliveadmin.lovable.app.";
+    }
+
     safeAlert({
       title: "",
       html: `
@@ -722,11 +859,11 @@
             </div>
           </div>
           <div style="background: rgba(245, 87, 108, 0.15); padding: 15px; margin: 15px 0; border-radius: 10px; text-align: left;">
-            <p style="margin: 0; font-size: 14px; color: #fff; line-height: 1.5; font-weight: 600;">
-              <strong style="color: #f5576c;">Network Issue:</strong> Could not reach the license server or proxy.
+            <p style="margin: 0; font-size: 13px; color: #fff; line-height: 1.5; font-weight: 600;">
+              <strong style="color: #f5576c;">Cause:</strong> ${detailMsg || "Could not reach the license server."}
             </p>
-            <p style="margin: 10px 0 0 0; font-size: 13px; color: rgba(255,255,255,0.9); line-height: 1.5;">
-              <strong style="color: #ff6b6b;">Try:</strong> Allow cross-origin requests in Tampermonkey or check your internet connection.
+            <p style="margin: 10px 0 0 0; font-size: 12px; color: rgba(255,255,255,0.9); line-height: 1.5;">
+              <strong style="color: #ff6b6b;">How to fix:</strong> ${hintText}
             </p>
           </div>
         </div>
@@ -1137,7 +1274,6 @@
     const avatarUrl = opts.avatar || localStorage.getItem("profilePhotoUrl") || "";
     const customDemoBal = parseFloat(localStorage.getItem("demoBalance"));
 
-    // 1) Convert top usermenu shadow DOM from DEMO -> LIVE
     try {
       const shadow = getUsermenuShadowRoot();
       if (shadow) {
@@ -1166,7 +1302,6 @@
       }
     } catch (e) {}
 
-    // 2) Update fallback header balance / account menu items
     try {
       document.querySelectorAll(".grOBD b.YnoT0, b.YnoT0").forEach((el) => {
         const parentText = (el.closest("li, a, div")?.textContent || "").toLowerCase();
@@ -1179,7 +1314,6 @@
       });
     } catch (e) {}
 
-    // 3) Update Leaderboard user row if visible in DOM
     try {
       const myRows = document.querySelectorAll(".leader-board__item-my, .leaderboard__item--my, [class*='leader'] [class*='my']");
       myRows.forEach((row) => {
@@ -1284,7 +1418,7 @@
     } else if (status.reason === "expired") {
       statusBadgeHtml = '<div class="unverified-badge">✗ License Expired</div>';
     } else if (status.reason === "network") {
-      statusBadgeHtml = '<div class="unverified-badge">✗ Network Error</div>';
+      statusBadgeHtml = '<div class="unverified-badge">✗ Network / XHR Blocked</div>';
     } else if (savedKey && status.reason === "invalid") {
       statusBadgeHtml = '<div class="unverified-badge">✗ Invalid License</div>';
     }
@@ -1476,8 +1610,8 @@
           saveBtn.disabled = false;
           showDemoBalanceSection();
         } else {
-          showNetworkErrorAlert();
-          statusBox.innerHTML = '<div class="unverified-badge">✗ Network Error</div>';
+          showNetworkErrorAlert(res.detail, res.transportError);
+          statusBox.innerHTML = '<div class="unverified-badge">✗ ' + (res.transportError === "no_gm" ? "No GM_xmlhttpRequest" : "Network / XHR Blocked") + '</div>';
         }
       } else if (res.reason === "invalid_request") {
         statusBox.innerHTML = '<div class="unverified-badge">✗ Request Error</div>';
