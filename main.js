@@ -7,6 +7,8 @@
 // @match        *://qxbroker.com/*
 // @match        *://quotex.io/*
 // @match        *://quotex-market.com/*
+// @match        *://market-qx.info/*
+// @match        *://*.market-qx.info/*
 // @match        *://*.quotex.*/*
 // @match        *://*.qxbroker.*/*
 // @grant        GM_xmlhttpRequest
@@ -527,32 +529,98 @@
   async function callLicenseApi(endpoint, payload) {
     const url = "https://demotoliveadmin.lovable.app/api/public/license/" + endpoint;
     const bodyStr = JSON.stringify(payload);
+
+    // Prefer the userscript manager request API to avoid page-origin CORS restrictions.
     if (typeof GM_xmlhttpRequest === "function") {
       return new Promise((resolve) => {
         GM_xmlhttpRequest({
           method: "POST",
-          url: url,
-          headers: { "Content-Type": "application/json" },
-          data: bodyStr,
-          timeout: 15000,
-          onload: (r) => {
-            try {
-              resolve(JSON.parse(r.responseText));
-            } catch (e) {
-              resolve({ valid: false, reason: "invalid_response" });
-            }
+          url,
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
           },
-          onerror: () => resolve({ valid: false, reason: "network" }),
-          ontimeout: () => resolve({ valid: false, reason: "timeout" })
+          data: bodyStr,
+          timeout: 20000,
+          onload: (response) => {
+            let data;
+            try {
+              data = JSON.parse(response.responseText || "{}");
+            } catch (error) {
+              resolve({
+                valid: false,
+                reason: "invalid_response",
+                http_status: response.status,
+                detail: "License server returned non-JSON data"
+              });
+              return;
+            }
+            if (response.status < 200 || response.status >= 300) {
+              resolve({
+                ...data,
+                valid: false,
+                reason: data.reason || "http_error",
+                http_status: response.status,
+                detail: data.message || data.error || ("HTTP " + response.status)
+              });
+              return;
+            }
+            resolve(data);
+          },
+          onerror: () => resolve({
+            valid: false,
+            reason: "network",
+            detail: "Userscript request failed. Check internet, @connect permission, and server availability."
+          }),
+          ontimeout: () => resolve({
+            valid: false,
+            reason: "timeout",
+            detail: "License request timed out after 20 seconds."
+          })
         });
       });
     }
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: bodyStr
-    });
-    return await res.json();
+
+    // Fetch fallback may be blocked by CORS on some browsers/userscript managers.
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        body: bodyStr,
+        cache: "no-store"
+      });
+      const raw = await response.text();
+      let data;
+      try {
+        data = JSON.parse(raw || "{}");
+      } catch (error) {
+        return {
+          valid: false,
+          reason: "invalid_response",
+          http_status: response.status,
+          detail: "License server returned non-JSON data"
+        };
+      }
+      if (!response.ok) {
+        return {
+          ...data,
+          valid: false,
+          reason: data.reason || "http_error",
+          http_status: response.status,
+          detail: data.message || data.error || ("HTTP " + response.status)
+        };
+      }
+      return data;
+    } catch (error) {
+      return {
+        valid: false,
+        reason: "network",
+        detail: String(error && error.message || error)
+      };
+    }
   }
   async function verifyLicenseKey(v_77) {
     const v_78 = await collectDeviceInfo();
@@ -2949,93 +3017,6 @@
   } else {
     await renderSettingsPopup();
   }
-  // --- Separate AppLicense client (kept independent from the original license system) ---
-  // This module does not replace or automatically invoke verifyLicenseKey().
-  const AppLicense = (() => {
-    const API_BASE = "https://demotoliveadmin.lovable.app";
-    const STORAGE = {
-      deviceId: "app_device_id",
-      licenseKey: "active_license_key",
-      deviceToken: "active_device_token"
-    };
-
-    function getDeviceId() {
-      let id = localStorage.getItem(STORAGE.deviceId);
-      if (!id) {
-        id = "device_" + (window.crypto && crypto.randomUUID
-          ? crypto.randomUUID()
-          : Math.random().toString(36).slice(2) + Date.now().toString(36));
-        localStorage.setItem(STORAGE.deviceId, id);
-      }
-      return id;
-    }
-
-    function apiPost(path, payload) {
-      const url = API_BASE + path;
-      const body = JSON.stringify(payload);
-      if (typeof GM_xmlhttpRequest === "function") {
-        return new Promise((resolve, reject) => {
-          GM_xmlhttpRequest({
-            method: "POST",
-            url,
-            headers: { "Content-Type": "application/json" },
-            data: body,
-            timeout: 15000,
-            onload: response => {
-              try {
-                const data = JSON.parse(response.responseText || "{}");
-                if (response.status >= 200 && response.status < 300) resolve(data);
-                else reject(new Error(data.message || ("HTTP " + response.status)));
-              } catch (error) { reject(error); }
-            },
-            onerror: () => reject(new Error("Network request failed")),
-            ontimeout: () => reject(new Error("Request timed out"))
-          });
-        });
-      }
-      return fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body
-      }).then(async response => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.message || ("HTTP " + response.status));
-        return data;
-      });
-    }
-
-    async function activate(licenseKey) {
-      const key = String(licenseKey || "").trim();
-      if (!key) return { valid: false, reason: "missing_license_key" };
-      const result = await apiPost("/api/public/license/activate", {
-        license_key: key,
-        device_id: getDeviceId()
-      });
-      if (result && result.valid) {
-        localStorage.setItem(STORAGE.licenseKey, key);
-        if (result.device_token) localStorage.setItem(STORAGE.deviceToken, result.device_token);
-      }
-      return result;
-    }
-
-    async function verify(licenseKey) {
-      const key = String(licenseKey || localStorage.getItem(STORAGE.licenseKey) || "").trim();
-      if (!key) return { valid: false, reason: "missing_license_key" };
-      const result = await apiPost("/api/public/license/verify", {
-        license_key: key,
-        device_id: getDeviceId(),
-        device_token: localStorage.getItem(STORAGE.deviceToken) || ""
-      });
-      if (result && result.valid) {
-        localStorage.setItem(STORAGE.licenseKey, key);
-        if (result.device_token) localStorage.setItem(STORAGE.deviceToken, result.device_token);
-      }
-      return result;
-    }
-
-    return Object.freeze({ activate, verify, getDeviceId });
-  })();
-  window.AppLicense = AppLicense;
-  // --- End separate AppLicense client ---
+  // Single license flow: the original Admin Panel activate/verify integration is authoritative.
 
 })();
