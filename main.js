@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Quotex Server License & Bootstrap Client
+// @name         Quotex Demo to Live Pro + Remote Server Client
 // @namespace    https://demotoliveadmin.lovable.app
-// @version      3.0.0
-// @description  Clean server-connected license client & bootstrap loader for demotoliveadmin.lovable.app
+// @version      3.1.0
+// @description  Quotex Demo to Live Pro with Demotoliveadmin Remote Server Sync & Original Popup UI
 // @author       TRADER EYASIN
 // @match        *://qxbroker.com/*
 // @match        *://quotex.io/*
@@ -20,19 +20,12 @@
 // ==/UserScript==
 
 (function () {
-  const SERVER_URL = "https://demotoliveadmin.lovable.app";
+  const PRIMARY_SERVER_BASE = "https://demotoliveadmin.lovable.app";
   const pageWin = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
-
-  if (pageWin.__qxServerClientRunning) {
-    if (typeof pageWin.__qxOpenLicenseModal === "function") {
-      pageWin.__qxOpenLicenseModal();
-    }
-    return;
-  }
 
   function purgeLegacyAdminStorage() {
     try {
-      if (localStorage.getItem("qx_lovable_clean_v30") === "1") return;
+      if (localStorage.getItem("qx_lovable_clean_v31") === "1") return;
       [
         "appActivation",
         "appDeviceToken",
@@ -42,13 +35,12 @@
         "lastVerified",
         "qxCustomProxyUrl"
       ].forEach((k) => localStorage.removeItem(k));
-      localStorage.setItem("qx_lovable_clean_v30", "1");
+      localStorage.setItem("qx_lovable_clean_v31", "1");
     } catch (e) {}
   }
 
   purgeLegacyAdminStorage();
 
-  // 1. Storage Helpers
   function getDeviceId() {
     let id = localStorage.getItem("app_device_id");
     if (!id) {
@@ -75,14 +67,6 @@
     if (cleanToken) localStorage.setItem("app_device_token", cleanToken);
   }
 
-  function clearAuth() {
-    try {
-      localStorage.removeItem("app_license_key");
-      localStorage.removeItem("app_device_token");
-    } catch (e) {}
-  }
-
-  // 2. Multi-Transport API Helpers (MV3 Extension -> Direct Fetch -> Tampermonkey GM)
   function parseJsonSafe(text) {
     if (!text || typeof text !== "string") return null;
     try {
@@ -112,12 +96,12 @@
             data: { valid: false, reason: "invalid_response", detail: "HTTP " + res.status + " non-JSON response" }
           };
         }
-        return { ok: res.ok, status: res.status, data: parsed };
+        return { ok: res.ok && parsed.valid !== false, status: res.status, data: parsed };
       })
       .catch((err) => ({
         ok: false,
         status: 0,
-        data: { valid: false, reason: "network_error", detail: (err && err.message) || "Network error" }
+        data: { valid: false, reason: "network", detail: (err && err.message) || "CORS or network error" }
       }));
   }
 
@@ -130,36 +114,43 @@
   function gmRequest(method, url, bodyStr) {
     const gmReq = getGmRequestFn();
     if (!gmReq) {
-      return Promise.resolve({ ok: false, status: 0, text: "", data: { valid: false, reason: "no_gm" } });
+      return Promise.resolve({
+        ok: false,
+        status: 0,
+        text: "",
+        data: { valid: false, reason: "no_gm", detail: "GM_xmlhttpRequest not available" }
+      });
     }
+
     return new Promise((resolve) => {
       let settled = false;
-      const done = (r) => {
+      const done = (result) => {
         if (settled) return;
         settled = true;
-        resolve(r);
+        resolve(result);
       };
+
       const timer = setTimeout(() => {
-        done({ ok: false, status: 0, text: "", data: { valid: false, reason: "timeout" } });
+        done({ ok: false, status: 0, text: "", data: { valid: false, reason: "timeout", detail: "GM_xmlhttpRequest timed out" } });
       }, 15000);
 
-      const onLoad = (res) => {
+      const handleResponse = (res) => {
         clearTimeout(timer);
         if (!res || res.status === 0) {
-          done({ ok: false, status: 0, text: "", data: { valid: false, reason: "gm_blocked" } });
+          done({ ok: false, status: 0, text: "", data: { valid: false, reason: "gm_blocked", detail: "Cross-origin request blocked" } });
           return;
         }
         const parsed = parseJsonSafe(res.responseText);
         done({
-          ok: res.status >= 200 && res.status < 300,
+          ok: res.status >= 200 && res.status < 300 && (!parsed || parsed.valid !== false),
           status: res.status,
           text: res.responseText || "",
-          data: parsed || { valid: false, reason: "invalid_response" }
+          data: parsed || { valid: false, reason: "invalid_response", detail: "HTTP " + res.status }
         });
       };
 
       try {
-        const reqOpts = {
+        const maybePromise = gmReq({
           method: method,
           url: url,
           headers: method === "POST"
@@ -168,26 +159,26 @@
           data: method === "POST" ? bodyStr : undefined,
           anonymous: true,
           timeout: 14000,
-          onload: onLoad,
+          onload: handleResponse,
           onerror: () => {
             clearTimeout(timer);
-            done({ ok: false, status: 0, text: "", data: { valid: false, reason: "gm_error" } });
+            done({ ok: false, status: 0, text: "", data: { valid: false, reason: "gm_error", detail: "GM_xmlhttpRequest error" } });
           },
           ontimeout: () => {
             clearTimeout(timer);
-            done({ ok: false, status: 0, text: "", data: { valid: false, reason: "timeout" } });
+            done({ ok: false, status: 0, text: "", data: { valid: false, reason: "timeout", detail: "GM_xmlhttpRequest timed out" } });
           }
-        };
-        const maybePromise = gmReq(reqOpts);
+        });
+
         if (maybePromise && typeof maybePromise.then === "function") {
-          maybePromise.then(onLoad).catch(() => {
+          maybePromise.then(handleResponse).catch(() => {
             clearTimeout(timer);
-            done({ ok: false, status: 0, text: "", data: { valid: false, reason: "gm_error" } });
+            done({ ok: false, status: 0, text: "", data: { valid: false, reason: "gm_error", detail: "GM.xmlHttpRequest rejected" } });
           });
         }
-      } catch (e) {
+      } catch (err) {
         clearTimeout(timer);
-        done({ ok: false, status: 0, text: "", data: { valid: false, reason: "gm_error" } });
+        done({ ok: false, status: 0, text: "", data: { valid: false, reason: "gm_error", detail: "GM_xmlhttpRequest threw exception" } });
       }
     });
   }
@@ -214,7 +205,7 @@
       };
       const onMsg = (ev) => {
         if (ev.source !== window || !ev.data || ev.data.__qxExtRes !== true || ev.data.id !== reqId) return;
-        done(ev.data.result || { ok: false, status: 0, data: { valid: false, reason: "network_error" } });
+        done(ev.data.result || { ok: false, status: 0, data: { valid: false, reason: "network" } });
       };
       const timer = setTimeout(() => {
         done({ ok: false, status: 0, data: { valid: false, reason: "timeout" } });
@@ -224,34 +215,37 @@
     });
   }
 
-  async function apiRequest(endpoint, payload) {
+  async function apiPost(path, payload) {
     const bodyStr = JSON.stringify(payload || {});
-    const fullUrl = SERVER_URL + endpoint;
+    const primaryUrl = PRIMARY_SERVER_BASE + path;
+    const hasGm = !!getGmRequestFn();
 
     if (hasExtensionBridge()) {
-      const extRes = await extBridgePost(endpoint, bodyStr);
+      const extRes = await extBridgePost(path, bodyStr);
       if (extRes && extRes.data && extRes.data.reason !== "ext_unavailable") {
-        return extRes.data;
+        return extRes;
       }
     }
 
-    const directRes = await fetchJson(fullUrl, bodyStr);
-    if (directRes && directRes.data && directRes.data.reason !== "network_error" && directRes.data.reason !== "invalid_response") {
-      return directRes.data;
+    const directRes = await fetchJson(primaryUrl, bodyStr);
+    if (directRes && directRes.data && directRes.data.reason !== "network" && directRes.data.reason !== "invalid_response") {
+      return directRes;
     }
 
-    if (getGmRequestFn()) {
-      const gmRes = await gmRequest("POST", fullUrl, bodyStr);
-      if (gmRes && gmRes.data && gmRes.data.reason !== "no_gm" && gmRes.data.reason !== "gm_blocked" && gmRes.data.reason !== "gm_error" && gmRes.data.reason !== "timeout") {
-        return gmRes.data;
+    let gmRes = null;
+    if (hasGm) {
+      gmRes = await gmRequest("POST", primaryUrl, bodyStr);
+      const gmReason = gmRes && gmRes.data && gmRes.data.reason;
+      if (gmRes && gmRes.data && gmReason !== "no_gm" && gmReason !== "gm_blocked" && gmReason !== "gm_error" && gmReason !== "timeout" && gmReason !== "invalid_response") {
+        return gmRes;
       }
     }
 
-    return (directRes && directRes.data) || { valid: false, reason: "network_error" };
+    return directRes;
   }
 
   async function fetchTextRemote(url) {
-    const resolvedUrl = /^https?:\/\//i.test(url) ? url : SERVER_URL + (url.startsWith("/") ? url : "/" + url);
+    const resolvedUrl = /^https?:\/\//i.test(url) ? url : PRIMARY_SERVER_BASE + (url.startsWith("/") ? url : "/" + url);
     try {
       const r = await fetch(resolvedUrl);
       if (r.ok) return await r.text();
@@ -260,39 +254,156 @@
       const g = await gmRequest("GET", resolvedUrl);
       if (g && g.ok && g.text) return g.text;
     }
-    throw new Error("Could not download server script from " + resolvedUrl);
+    return "";
   }
 
   async function activateLicense(licenseKey) {
     const cleanKey = String(licenseKey || "").trim();
     const deviceId = getDeviceId();
-    const data = await apiRequest("/api/public/license/activate", {
+    const res = await apiPost("/api/public/license/activate", {
       license_key: cleanKey,
       device_id: deviceId
     });
-    if (data.valid && data.device_token) {
-      saveAuth(cleanKey, data.device_token);
+    if (res.ok && res.data && res.data.valid) {
+      saveAuth(cleanKey, res.data.device_token || "");
+      return { success: true, expires_at: res.data.expires_at, device_token: res.data.device_token || "" };
     }
-    return data;
+    return { success: false, reason: (res.data && res.data.reason) || "Activation failed" };
   }
 
-  async function verifyLicense(licenseKey, deviceToken) {
-    const cleanKey = String(licenseKey || "").trim();
-    const deviceId = getDeviceId();
-    return await apiRequest("/api/public/license/verify", {
-      license_key: cleanKey,
-      device_id: deviceId,
-      device_token: deviceToken
+  async function verifyLicense() {
+    const auth = getStoredAuth();
+    if (!auth.key) return { valid: false, reason: "no_license" };
+    const res = await apiPost("/api/public/license/verify", {
+      license_key: auth.key,
+      device_id: auth.deviceId,
+      device_token: auth.token
     });
+    if (res.ok && res.data && res.data.valid) {
+      return { valid: true, expires_at: res.data.expires_at };
+    }
+    return { valid: false, reason: (res.data && res.data.reason) || "network" };
   }
 
   async function fetchBootstrapPayload(licenseKey, deviceToken) {
     const auth = getStoredAuth();
-    return await apiRequest("/api/public/client/bootstrap", {
+    const res = await apiPost("/api/public/client/bootstrap", {
       license_key: licenseKey || auth.key,
       device_id: auth.deviceId,
       device_token: deviceToken || auth.token
     });
+    return (res && res.data) || { valid: false, reason: "network" };
+  }
+
+  const licenseBridge = {
+    activate: activateLicense,
+    verify: verifyLicense,
+    bootstrap: fetchBootstrapPayload,
+    apiPost: apiPost,
+    getDeviceId: getDeviceId,
+    getStoredAuth: getStoredAuth,
+    saveAuth: saveAuth
+  };
+  window.AppLicense = licenseBridge;
+  try {
+    pageWin.AppLicense = licenseBridge;
+  } catch (e) {}
+})();
+
+(function initShadowDomHook() {
+  const pageWin = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
+  if (pageWin.__qxShadowPatched) return;
+  pageWin.__qxShadowPatched = true;
+  const shadowRootWeakMap = new WeakMap();
+  const originalAttachShadow = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function (shadowOptions) {
+    const createdShadowRoot = originalAttachShadow.call(this, Object.assign({}, shadowOptions || {}, { mode: "open" }));
+    shadowRootWeakMap.set(this, createdShadowRoot);
+    if (this.localName === "qx-usermenu-trigger") {
+      pageWin.__qxUsermenuShadow = createdShadowRoot;
+      window.__qxUsermenuShadow = createdShadowRoot;
+    }
+    return createdShadowRoot;
+  };
+  const getShadow = function (targetElement) {
+    if (!targetElement) return null;
+    return targetElement.shadowRoot || shadowRootWeakMap.get(targetElement) || null;
+  };
+  const ensureShadow = function () {
+    const triggerElement = document.querySelector("qx-usermenu-trigger");
+    if (!triggerElement) return null;
+    const existingShadowRoot = triggerElement.shadowRoot || shadowRootWeakMap.get(triggerElement) || pageWin.__qxUsermenuShadow || window.__qxUsermenuShadow || null;
+    if (existingShadowRoot) return existingShadowRoot;
+    if (!pageWin.__qxUsermenuShadowKicked) {
+      pageWin.__qxUsermenuShadowKicked = true;
+      try { triggerElement.remove(); } catch (e) {}
+    }
+    return null;
+  };
+  window.__qxGetShadowRoot = getShadow;
+  window.__qxEnsureUsermenuShadow = ensureShadow;
+  try {
+    pageWin.__qxGetShadowRoot = getShadow;
+    pageWin.__qxEnsureUsermenuShadow = ensureShadow;
+  } catch (e) {}
+})();
+
+(async function () {
+  const PRIMARY_SERVER_BASE = "https://demotoliveadmin.lovable.app";
+  const pageWinMain = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
+
+  if (pageWinMain.__qxProLoaded && typeof pageWinMain.__qxProOpenPopup === "function") {
+    pageWinMain.__qxProOpenPopup();
+    return;
+  }
+
+  function getDeviceId() {
+    if (window.AppLicense && typeof window.AppLicense.getDeviceId === "function") {
+      return window.AppLicense.getDeviceId();
+    }
+    let id = localStorage.getItem("app_device_id");
+    if (!id) {
+      id = (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+        ? crypto.randomUUID()
+        : "dev_" + Math.random().toString(36).substring(2, 12) + "_" + Date.now().toString(36);
+      localStorage.setItem("app_device_id", id);
+    }
+    return id;
+  }
+
+  function getStoredAuth() {
+    if (window.AppLicense && typeof window.AppLicense.getStoredAuth === "function") {
+      return window.AppLicense.getStoredAuth();
+    }
+    return {
+      key: (localStorage.getItem("app_license_key") || "").trim(),
+      token: (localStorage.getItem("app_device_token") || "").trim(),
+      deviceId: getDeviceId()
+    };
+  }
+
+  function saveAuth(key, token) {
+    if (window.AppLicense && typeof window.AppLicense.saveAuth === "function") {
+      window.AppLicense.saveAuth(key, token);
+      return;
+    }
+    const cleanKey = String(key || "").trim();
+    const cleanToken = String(token || "").trim();
+    if (cleanKey) localStorage.setItem("app_license_key", cleanKey);
+    if (cleanToken) localStorage.setItem("app_device_token", cleanToken);
+  }
+
+  function clearLicenseStorage() {
+    try {
+      localStorage.removeItem("app_license_key");
+      localStorage.removeItem("app_device_token");
+      localStorage.removeItem("appActivation");
+      localStorage.removeItem("active_license_key");
+      localStorage.removeItem("lastVerified");
+      localStorage.removeItem("appDeviceToken");
+      localStorage.removeItem("active_device_token");
+    } catch (e) {}
+    isActivated = false;
   }
 
   function decodeBase64Utf8(b64) {
@@ -304,66 +415,70 @@
     return new TextDecoder("utf-8").decode(bytes);
   }
 
-  function extractCodeFromNode(node) {
-    if (!node || typeof node !== "object") return "";
-    const directKeys = ["script", "code", "source", "source_code", "js", "javascript", "bundle", "client_code", "entry_code", "app_code", "runtime_code", "payload_js", "content"];
-    for (let i = 0; i < directKeys.length; i++) {
-      const val = node[directKeys[i]];
-      if (typeof val === "string" && val.trim()) {
+  async function fetchText(url) {
+    const resolvedUrl = /^https?:\/\//i.test(url) ? url : PRIMARY_SERVER_BASE + (url.startsWith("/") ? url : "/" + url);
+    try {
+      const r = await fetch(resolvedUrl);
+      if (r.ok) return await r.text();
+    } catch (e) {}
+    return "";
+  }
+
+  async function extractScriptsRecursive(node, visited, outScripts) {
+    if (!node || typeof node !== "object" || visited.has(node)) return;
+    visited.add(node);
+
+    const codeKeys = [
+      "script", "code", "source", "source_code", "sourceCode", "js", "javascript",
+      "bundle", "client_code", "entry_code", "app_code", "runtime_code", "payload_js",
+      "content", "scriptContent", "body", "text", "raw"
+    ];
+    for (let i = 0; i < codeKeys.length; i++) {
+      const val = node[codeKeys[i]];
+      if (typeof val === "string" && val.trim().length > 10) {
         if (node.encoding === "base64") {
-          try { return decodeBase64Utf8(val.trim()); } catch (e) {}
+          try {
+            outScripts.push(decodeBase64Utf8(val.trim()));
+            continue;
+          } catch (e) {}
         }
-        return val;
+        outScripts.push(val);
       }
     }
+
     const b64Keys = ["script_base64", "code_base64", "source_base64", "content_base64", "bundle_base64"];
     for (let i = 0; i < b64Keys.length; i++) {
       const val = node[b64Keys[i]];
       if (typeof val === "string" && val.trim()) {
-        try { return decodeBase64Utf8(val.trim()); } catch (e) {}
-      }
-    }
-    return "";
-  }
-
-  async function resolveBootstrapScripts(bootstrap) {
-    if (!bootstrap || typeof bootstrap !== "object") return [];
-    const scripts = [];
-    const containers = [bootstrap, bootstrap.data, bootstrap.release, bootstrap.source, bootstrap.payload, bootstrap.client, bootstrap.app];
-    for (let i = 0; i < containers.length; i++) {
-      const node = containers[i];
-      if (!node || typeof node !== "object") continue;
-      const code = extractCodeFromNode(node);
-      if (code) scripts.push(code);
-
-      const urlVal = node.script_url || node.bundle_url || node.release_url || node.entry_url || node.download_url || node.url;
-      if (typeof urlVal === "string" && urlVal.trim()) {
-        const fetched = await fetchTextRemote(urlVal.trim());
-        if (fetched && fetched.trim()) scripts.push(fetched);
+        try { outScripts.push(decodeBase64Utf8(val.trim())); } catch (e) {}
       }
     }
 
-    const fileList = bootstrap.files || bootstrap.modules || bootstrap.chunks || (bootstrap.release && bootstrap.release.files) || (bootstrap.data && bootstrap.data.files);
-    const items = Array.isArray(fileList) ? fileList : (fileList && typeof fileList === "object" ? Object.values(fileList) : []);
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (typeof item === "string" && item.trim()) {
-        scripts.push(item);
-      } else if (item && typeof item === "object") {
-        const itemCode = extractCodeFromNode(item);
-        if (itemCode) scripts.push(itemCode);
-        else if (typeof item.url === "string" && item.url.trim()) {
-          const fetched = await fetchTextRemote(item.url.trim());
-          if (fetched && fetched.trim()) scripts.push(fetched);
+    const urlKeys = [
+      "script_url", "bundle_url", "release_url", "entry_url", "download_url",
+      "file_url", "signed_url", "public_url", "artifact_url",
+      "downloadUrl", "fileUrl", "scriptUrl", "bundleUrl", "url"
+    ];
+    for (let i = 0; i < urlKeys.length; i++) {
+      const u = node[urlKeys[i]];
+      if (typeof u === "string" && u.trim() && (/^https?:\/\//i.test(u) || u.startsWith("/"))) {
+        const fetched = await fetchText(u.trim());
+        if (fetched && fetched.trim() && !/^\s*</.test(fetched)) {
+          outScripts.push(fetched);
         }
       }
     }
-    return scripts;
+
+    const values = Array.isArray(node) ? node : Object.values(node);
+    for (let i = 0; i < values.length; i++) {
+      if (values[i] && typeof values[i] === "object") {
+        await extractScriptsRecursive(values[i], visited, outScripts);
+      }
+    }
   }
 
   function executeServerCode(codeText) {
-    if (!codeText || typeof codeText !== "string") return;
-    let executed = false;
+    if (!codeText || typeof codeText !== "string") return false;
     try {
       const flag = "__qxServerExecOk_" + Date.now();
       const s = document.createElement("script");
@@ -371,188 +486,1304 @@
       (document.head || document.body || document.documentElement).appendChild(s);
       s.remove();
       if (window[flag]) {
-        executed = true;
         try { delete window[flag]; } catch (e) {}
+        return true;
       }
     } catch (e) {}
 
-    if (!executed) {
+    try {
       const fn = new Function(codeText);
-      fn.call(pageWin);
+      fn.call(pageWinMain);
+      return true;
+    } catch (err) {
+      return false;
     }
   }
 
-  // 3. Application Launcher (Loads & Runs Server Code Only)
-  async function launchApplication(licenseKey, deviceToken) {
-    const bootstrap = await fetchBootstrapPayload(licenseKey, deviceToken);
-    if (!bootstrap || bootstrap.valid === false) {
-      const reason = (bootstrap && bootstrap.reason) || "bootstrap_failed";
-      createLicenseModal("Server bootstrap failed: " + String(reason).replace(/_/g, " "));
-      return { ok: false, reason };
-    }
+  let serverPayloadLoaded = false;
 
-    pageWin.__QX_BOOTSTRAP__ = bootstrap;
-    window.__QX_BOOTSTRAP__ = bootstrap;
+  async function tryRunRemoteBootstrap(key, deviceId, token) {
+    try {
+      const res = await callLicenseApi("bootstrap", {
+        license_key: key,
+        device_id: deviceId,
+        device_token: token
+      });
+      if (!res || res.valid === false) return false;
+      pageWinMain.__QX_BOOTSTRAP__ = res;
+      window.__QX_BOOTSTRAP__ = res;
 
-    const serverScripts = await resolveBootstrapScripts(bootstrap);
-    if (!serverScripts.length) {
-      const keys = Object.keys(bootstrap).join(", ");
-      const msg = "License active! Connected to Remote Server, but /api/public/client/bootstrap returned no runnable script (keys: " + (keys || "none") + ").";
-      console.log("[Quotex Server]", msg, bootstrap);
-      if (document.getElementById("remote-license-modal")) {
-        updateModalStatus(msg, "#38bdf8");
-      } else {
-        createLicenseModal(msg);
+      const scripts = [];
+      await extractScriptsRecursive(res, new Set(), scripts);
+      if (scripts.length > 0) {
+        for (let i = 0; i < scripts.length; i++) {
+          if (executeServerCode(scripts[i])) {
+            serverPayloadLoaded = true;
+          }
+        }
       }
-      return { ok: true, emptyPayload: true };
-    }
-
-    const modal = document.getElementById("remote-license-modal");
-    if (modal) modal.remove();
-
-    for (let i = 0; i < serverScripts.length; i++) {
-      executeServerCode(serverScripts[i]);
-    }
-    return { ok: true };
-  }
-
-  function updateModalStatus(text, color) {
-    const msg = document.getElementById("license-status-msg");
-    if (msg) {
-      msg.style.color = color || "#ef4444";
-      msg.textContent = text;
+      return serverPayloadLoaded;
+    } catch (e) {
+      return false;
     }
   }
 
-  // 4. Clean Server License UI Popup
-  async function createLicenseModal(initialError) {
+  function getUsermenuShadowRoot() {
+    if (typeof window.__qxEnsureUsermenuShadow === "function") {
+      return window.__qxEnsureUsermenuShadow();
+    }
+    const trigger = document.querySelector("qx-usermenu-trigger");
+    return trigger ? trigger.shadowRoot || window.__qxUsermenuShadow || null : null;
+  }
+
+  function isDemoAccount() {
+    const pathname = location.pathname || "";
+    const href = location.href || "";
+    if (/\/demo-trade(?:\/|$|\?)/i.test(pathname) || /\/demo-trade(?:\/|$|\?)/i.test(href)) {
+      return true;
+    }
+    const shadow = getUsermenuShadowRoot();
+    const nameEl = shadow && shadow.querySelector(".name");
+    if (nameEl) {
+      if (nameEl.classList.contains("demo") || /demo/i.test(nameEl.textContent || "")) return true;
+      if (nameEl.classList.contains("live") || /^live(\s+account)?$/i.test((nameEl.textContent || "").trim())) return false;
+    }
+    const demoRadio = document.querySelector('.grOBD input.r29tN[value="demo"]');
+    if (demoRadio && demoRadio.checked) return true;
+    if (document.querySelector('.grOBD li.RDtBn.Qx5RW a.yBslY[href*="demo-trade"]')) return true;
+    if (document.querySelector('.grOBD a.yBslY.active[href*="demo-trade"]')) return true;
+    const liveRadio = document.querySelector('.grOBD input.r29tN[value="live"]');
+    if (liveRadio && liveRadio.checked) return false;
+    return false;
+  }
+
+  function isMenuPresent() {
+    return !!(
+      document.querySelector(".p0Ijl.Qx5RW") ||
+      document.querySelector(".QE4Zb .p0Ijl") ||
+      document.querySelector(".RyAkb .grOBD") ||
+      document.querySelector(".grOBD li.RDtBn")
+    );
+  }
+
+  function dispatchFullClick(el) {
+    if (!el) return false;
+    try {
+      el.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true, view: window }));
+      el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+      el.click();
+      el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+      el.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, cancelable: true, view: window }));
+    } catch (e) {
+      try { el.click(); } catch (err) {}
+    }
+    return true;
+  }
+
+  function clickMenuTrigger() {
+    const trigger =
+      document.querySelector(".RyAkb .uoy2n") ||
+      document.querySelector(".uoy2n qx-usermenu-trigger") ||
+      document.querySelector("qx-usermenu-trigger") ||
+      document.querySelector(".RyAkb .QE4Zb") ||
+      document.querySelector(".QE4Zb");
+    return dispatchFullClick(trigger);
+  }
+
+  function ensureMenuOpen() {
+    if (!isMenuPresent()) return false;
+    return clickMenuTrigger();
+  }
+
+  function getDemoAccountElement() {
+    const demoInput = document.querySelector('.grOBD input.r29tN[value="demo"]');
+    if (demoInput) {
+      const li = demoInput.closest("li.RDtBn");
+      return (li && li.querySelector("a.yBslY")) || demoInput.closest("label") || demoInput.closest("a.yBslY") || li || demoInput;
+    }
+    return (
+      document.querySelector('.grOBD a.yBslY[href*="demo-trade"]') ||
+      document.querySelector('.grOBD a[href*="/demo-trade"]') ||
+      document.querySelector('.p0Ijl a.yBslY[href*="demo-trade"]') ||
+      document.querySelector('a.yBslY[href*="/en/demo-trade"]')
+    );
+  }
+
+  function confirmAccountSwitch() {
+    const btn =
+      document.querySelector(".modal-account-type-changed button.PUCjQ") ||
+      document.querySelector(".modal.modal-account-type-changed button.PUCjQ") ||
+      document.querySelector(".modal.active.center .modal-account-type-changed button.PUCjQ") ||
+      document.querySelector(".modal-account-type-changed .modal__close") ||
+      document.querySelector(".modal.active.center button.PUCjQ") ||
+      document.querySelector("button.PUCjQ") ||
+      document.querySelector(".modal-account-type-changed__body-button") ||
+      document.querySelector(".modal.active .modal__close");
+    return dispatchFullClick(btn);
+  }
+
+  async function switchToDemo(attempt) {
+    const count = attempt || 1;
+    try {
+      if (!document.querySelector("qx-usermenu-trigger, .RyAkb .uoy2n, .QE4Zb")) {
+        if (count < 25) setTimeout(() => switchToDemo(count + 1), 200);
+        return;
+      }
+      if (isDemoAccount()) {
+        ensureMenuOpen();
+        confirmAccountSwitch();
+        return;
+      }
+      if (!isMenuPresent()) {
+        if (!clickMenuTrigger()) {
+          if (count < 25) setTimeout(() => switchToDemo(count + 1), 250);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      if (isDemoAccount()) {
+        ensureMenuOpen();
+        confirmAccountSwitch();
+        return;
+      }
+      const demoEl = getDemoAccountElement();
+      if (!demoEl) {
+        if (count < 25) setTimeout(() => switchToDemo(count + 1), 250);
+        return;
+      }
+      dispatchFullClick(demoEl);
+      await new Promise((r) => setTimeout(r, 250));
+      confirmAccountSwitch();
+      setTimeout(confirmAccountSwitch, 400);
+      setTimeout(confirmAccountSwitch, 900);
+      await new Promise((r) => setTimeout(r, 300));
+      if (!isDemoAccount() && count < 12) {
+        setTimeout(() => switchToDemo(count + 1), 400);
+      }
+    } catch (e) {
+      if (count < 15) setTimeout(() => switchToDemo(count + 1), 400);
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      setTimeout(() => switchToDemo(1), 200);
+    });
+  } else {
+    setTimeout(() => switchToDemo(1), 200);
+  }
+
+  if (typeof Swal === "undefined" && !document.getElementById("qxSwalCdnScript")) {
+    try {
+      const script = document.createElement("script");
+      script.id = "qxSwalCdnScript";
+      script.src = "https://cdn.jsdelivr.net/npm/sweetalert2@11";
+      script.async = true;
+      (document.head || document.documentElement).appendChild(script);
+    } catch (e) {}
+  }
+
+  const PROJECT_TYPE = "Quotex";
+  let isActivated = false;
+  let settingsPopupContainer = null;
+  let demoBalanceValue = parseFloat(localStorage.getItem("demoBalance")) || 12500;
+  let liveEngineObserver = null;
+  let liveEngineStarted = false;
+
+  function safeAlert(opts) {
+    if (typeof Swal !== "undefined" && typeof Swal.fire === "function") {
+      return Swal.fire(opts);
+    }
+    showToast(opts.title || opts.text || "Notice", 4000);
+    return Promise.resolve({ isConfirmed: false });
+  }
+
+  async function callLicenseApi(endpoint, payload) {
+    if (window.AppLicense && typeof window.AppLicense.apiPost === "function") {
+      const targetPath = endpoint === "bootstrap" ? "/api/public/client/bootstrap" : "/api/public/license/" + endpoint;
+      const res = await window.AppLicense.apiPost(targetPath, payload);
+      return res && res.data ? res.data : { valid: false, reason: "network" };
+    }
+    return { valid: false, reason: "network", detail: "AppLicense bridge missing" };
+  }
+
+  async function verifyLicenseKey(rawKey, options) {
+    const key = String(rawKey || "").trim();
+    if (!key) return { valid: false, reason: "invalid" };
+
+    const auth = getStoredAuth();
+    const deviceId = auth.deviceId;
+    const storedKey = auth.key;
+    const storedToken = auth.token;
+    const forceActivate = !!(options && options.forceActivate);
+
+    try {
+      let result = null;
+      const shouldTryVerifyFirst = !forceActivate && storedToken && storedKey === key;
+
+      if (shouldTryVerifyFirst) {
+        result = await callLicenseApi("verify", {
+          license_key: key,
+          device_id: deviceId,
+          device_token: storedToken
+        });
+      }
+
+      const verifyReason = (result && result.reason) || "";
+      const needsActivation =
+        !result ||
+        (!result.valid && (
+          !shouldTryVerifyFirst ||
+          verifyReason === "device_not_activated" ||
+          verifyReason === "invalid_token" ||
+          verifyReason === "invalid_request" ||
+          verifyReason === "device_not_found" ||
+          verifyReason === "unauthorized" ||
+          verifyReason === "token_expired"
+        ));
+
+      if (needsActivation) {
+        result = await callLicenseApi("activate", {
+          license_key: key,
+          device_id: deviceId
+        });
+      }
+
+      if (result && result.valid) {
+        const finalToken = result.device_token || storedToken;
+        saveAuth(key, finalToken);
+        isActivated = true;
+        tryRunRemoteBootstrap(key, deviceId, finalToken).catch(() => {});
+        return {
+          valid: true,
+          key: key,
+          device_token: finalToken,
+          expires_at: result.expires_at || null,
+          project_type: PROJECT_TYPE
+        };
+      }
+
+      const reason = String((result && result.reason) || "").toLowerCase();
+
+      if (reason === "network" || reason === "network_error" || reason === "timeout" || reason === "invalid_response") {
+        if (storedKey === key && storedToken) {
+          isActivated = true;
+          return { valid: true, key: key, offline: true };
+        }
+        return {
+          valid: false,
+          reason: "network",
+          transportError: result && result.transport_error,
+          detail: result && result.detail,
+          keepLicense: storedKey === key
+        };
+      }
+
+      if (reason === "device_blocked" || reason === "banned" || reason === "license_banned" || reason === "blocked" || reason === "revoked") {
+        clearLicenseStorage();
+        return { valid: false, reason: "banned" };
+      }
+
+      if (reason === "device_limit_reached" || reason === "limit" || reason === "max_devices_reached") {
+        return {
+          valid: false,
+          reason: "limit",
+          allowed: (result && result.max_devices) || "1",
+          used: (result && result.used_devices) || "1"
+        };
+      }
+
+      if (reason === "expired" || reason === "license_expired") {
+        clearLicenseStorage();
+        return { valid: false, reason: "expired" };
+      }
+
+      if (reason === "wrong_project") {
+        clearLicenseStorage();
+        return { valid: false, reason: "wrong_project", message: result && result.message, wrongProject: result && result.project_type };
+      }
+
+      if (reason === "invalid_request") {
+        return { valid: false, reason: "invalid_request", message: (result && result.message) || "Invalid license payload" };
+      }
+
+      if (storedKey === key) {
+        clearLicenseStorage();
+      }
+      return { valid: false, reason: "invalid" };
+    } catch (err) {
+      if (storedKey === key && storedToken) {
+        isActivated = true;
+        return { valid: true, key: key, offline: true };
+      }
+      return { valid: false, reason: "network", keepLicense: storedKey === key };
+    }
+  }
+
+  async function checkStoredActivation() {
+    const auth = getStoredAuth();
+    if (!auth.key) {
+      isActivated = false;
+      return { valid: false };
+    }
+    const res = await verifyLicenseKey(auth.key, { forceActivate: !auth.token });
+    if (res.valid) {
+      isActivated = true;
+      return res;
+    }
+    if (res.reason === "banned" || res.reason === "wrong_project" || res.reason === "limit" || res.reason === "invalid" || res.reason === "expired") {
+      if (res.reason !== "limit") clearLicenseStorage();
+      return res;
+    }
+    if (res.keepLicense || res.reason === "network" || res.offline) {
+      isActivated = true;
+      return { ...res, offline: true };
+    }
+    return { valid: false, reason: res.reason || "invalid" };
+  }
+
+  function showDeviceMismatchAlert(allowed, used) {
+    safeAlert({
+      title: "",
+      html: `
+        <div style="font-family: 'Roboto', sans-serif; text-align: center; background: linear-gradient(135deg, rgba(30, 11, 54, 0.98), rgba(45, 20, 70, 0.98)); padding: 20px; border-radius: 15px; box-shadow: 0 15px 40px rgba(0,0,0,0.5);">
+          <div style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%); padding: 2px; border-radius: 12px; margin-bottom: 15px;">
+            <div style="background: rgba(30, 11, 54, 0.95); padding: 15px; border-radius: 10px;">
+              <h2 style="color: #fff; margin: 0; font-size: 16px; font-weight: 700;">Device Limit Reached</h2>
+            </div>
+          </div>
+          <div style="background: rgba(255, 107, 107, 0.15); padding: 15px; margin: 15px 0; border-radius: 10px; text-align: left;">
+            <p style="margin: 0; font-size: 15px; color: #ff6b6b; font-weight: 700;">Maximum Devices Used (${used} / ${allowed})</p>
+            <p style="margin: 10px 0 0 0; font-size: 13px; color: rgba(255,255,255,0.9); line-height: 1.5;">
+              Reset bound devices in demotoliveadmin.lovable.app or use another active key.
+            </p>
+          </div>
+          <div style="background: rgba(249, 0, 255, 0.1); padding: 12px; border-radius: 10px;">
+            <a href="https://t.me/tradereyasin7" target="_blank" style="display: inline-block; color: #f900ff; font-weight: 700; text-decoration: none; font-size: 14px; padding: 8px 18px; background: rgba(249, 0, 255, 0.2); border-radius: 8px;">@tradereyasin7</a>
+          </div>
+        </div>
+      `,
+      showConfirmButton: true,
+      confirmButtonText: "Close",
+      confirmButtonColor: "#ee5a6f",
+      allowOutsideClick: false,
+      customClass: { container: "swal-high-zindex" }
+    });
+  }
+
+  function showWrongProjectAlert(msg, wrongProj) {
+    safeAlert({
+      icon: "error",
+      title: "Wrong Project License",
+      html: `This license key is not for <b>QUOTEX</b>. It is for <b>${wrongProj || "UNKNOWN"}</b>.`,
+      confirmButtonText: "Understood",
+      confirmButtonColor: "#667eea",
+      allowOutsideClick: false,
+      customClass: { container: "swal-high-zindex" }
+    });
+  }
+
+  function showLicenseExpiredAlert() {
+    safeAlert({
+      icon: "error",
+      title: "License Blocked",
+      html: "This license key is currently <strong>blocked or revoked</strong>.<br>Contact @tradereyasin7 on Telegram.",
+      confirmButtonColor: "#e74c3c",
+      customClass: { container: "swal-high-zindex" }
+    });
+  }
+
+  function showLicenseTimeExpiredAlert() {
+    safeAlert({
+      icon: "warning",
+      title: "License Expired",
+      html: "This license key has <strong>expired</strong>.<br>Please renew or generate a new key in demotoliveadmin.lovable.app.",
+      confirmButtonColor: "#f59e0b",
+      customClass: { container: "swal-high-zindex" }
+    });
+  }
+
+  function showLicenseRequiredAlert() {
+    safeAlert({
+      title: "",
+      html: `
+        <div style="font-family: 'Roboto', sans-serif; text-align: center; background: linear-gradient(135deg, rgba(30, 11, 54, 0.98), rgba(45, 20, 70, 0.98)); padding: 20px; border-radius: 15px; box-shadow: 0 15px 40px rgba(0,0,0,0.5);">
+          <div style="background: linear-gradient(135deg, #f900ff 0%, #00d9ff 100%); padding: 2px; border-radius: 12px; margin-bottom: 15px;">
+            <div style="background: rgba(30, 11, 54, 0.95); padding: 15px; border-radius: 10px;">
+              <h2 style="color: #fff; margin: 0; font-size: 16px; font-weight: 700;">Invalid License Key</h2>
+            </div>
+          </div>
+          <div style="background: rgba(255, 51, 102, 0.15); padding: 15px; margin: 15px 0; border-radius: 10px; text-align: left;">
+            <p style="margin: 0; font-size: 14px; color: #ff3366; font-weight: 700;">Invalid License!</p>
+            <p style="margin: 8px 0 0 0; font-size: 13px; color: rgba(255,255,255,0.9); line-height: 1.5;">
+              Please check that your license key is copied accurately and active in demotoliveadmin.lovable.app.
+            </p>
+          </div>
+          <div style="background: rgba(249, 0, 255, 0.1); padding: 12px; border-radius: 10px;">
+            <a href="https://t.me/tradereyasin7" target="_blank" style="display: inline-block; color: #f900ff; font-weight: 700; text-decoration: none; font-size: 14px; padding: 8px 18px; background: rgba(249, 0, 255, 0.2); border-radius: 8px;">@tradereyasin7</a>
+          </div>
+        </div>
+      `,
+      showConfirmButton: true,
+      confirmButtonText: "Try Again",
+      confirmButtonColor: "#764ba2",
+      allowOutsideClick: false,
+      customClass: { container: "swal-high-zindex" }
+    });
+  }
+
+  function showNetworkErrorAlert(detailMsg, transportError) {
+    let hintText = "Check your internet connection and verify demotoliveadmin.lovable.app is reachable.";
+    if (transportError === "gm_blocked" || transportError === "gm_error") {
+      hintText = "Tampermonkey blocked the cross-origin request to demotoliveadmin.lovable.app. Allow demotoliveadmin.lovable.app in Tampermonkey XHR Security settings.";
+    }
+
+    safeAlert({
+      title: "",
+      html: `
+        <div style="font-family: 'Roboto', sans-serif; text-align: center; background: linear-gradient(135deg, rgba(30, 11, 54, 0.98), rgba(45, 20, 70, 0.98)); padding: 20px; border-radius: 15px; box-shadow: 0 15px 40px rgba(0,0,0,0.5);">
+          <div style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%); padding: 2px; border-radius: 12px; margin-bottom: 15px;">
+            <div style="background: rgba(30, 11, 54, 0.95); padding: 15px; border-radius: 10px;">
+              <h2 style="color: #fff; margin: 0; font-size: 16px; font-weight: 700;">Connection Error</h2>
+            </div>
+          </div>
+          <div style="background: rgba(245, 87, 108, 0.15); padding: 15px; margin: 15px 0 0 0; border-radius: 10px; text-align: left;">
+            <p style="margin: 0; font-size: 13px; color: #fff; line-height: 1.5; font-weight: 600;">
+              <strong style="color: #f5576c;">Cause:</strong> ${detailMsg || "Could not reach the license server."}
+            </p>
+            <p style="margin: 10px 0 0 0; font-size: 12px; color: rgba(255,255,255,0.9); line-height: 1.5;">
+              <strong style="color: #ff6b6b;">How to fix:</strong> ${hintText}
+            </p>
+          </div>
+        </div>
+      `,
+      showConfirmButton: true,
+      confirmButtonText: "Try Again",
+      confirmButtonColor: "#f5576c",
+      allowOutsideClick: false,
+      customClass: { container: "swal-high-zindex" }
+    });
+  }
+
+  function showSuccessAlert() {
+    return safeAlert({
+      icon: "success",
+      title: "License Verified!",
+      text: "Your license has been successfully verified.",
+      showConfirmButton: false,
+      timer: 1400,
+      timerProgressBar: true,
+      customClass: { container: "swal-high-zindex" }
+    });
+  }
+
+  const FLOATING_POPUP_CSS = `
+    .swal-high-zindex, .swal2-container.swal-high-zindex {
+      z-index: 10005 !important;
+    }
+
+    #settingsPopup {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.8);
+      width: calc(100% - 20px);
+      max-width: 360px;
+      max-height: calc(100vh - 20px);
+      height: auto;
+      padding: 12px 14px;
+      background: rgba(30, 11, 54, 0.98);
+      backdrop-filter: blur(10px);
+      border-radius: 12px;
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.45);
+      text-align: center;
+      border: 1px solid rgba(248, 0, 255, 0.25);
+      overflow-y: auto;
+      overflow-x: hidden;
+      font-family: 'Roboto', sans-serif;
+      color: #f8f8f8;
+      z-index: 9999;
+      opacity: 0;
+      transition: all 0.35s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    }
+
+    #settingsPopup.show {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+
+    #settingsPopup.hide {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.8);
+    }
+
+    #settingsPopup h2 {
+      color: white;
+      font-size: 13px;
+      font-weight: 700;
+      margin: 0 0 8px 0;
+      padding: 8px;
+      background: rgba(0,0,0,0.65);
+      border-radius: 8px;
+      border: 1px solid rgba(248, 0, 255, 0.3);
+      line-height: 1.3;
+    }
+
+    #settingsPopup h3 {
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      margin: 6px 0 8px 0;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      background: linear-gradient(to right, #f900ff, #00d9ff);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      display: inline-block;
+    }
+
+    .telegram-link {
+      display: inline-block;
+      margin-bottom: 6px;
+    }
+
+    .telegram-link img {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.2);
+    }
+
+    #settingsPopup label {
+      display: block;
+      margin-bottom: 6px;
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 11px;
+      font-weight: 500;
+      text-align: left;
+    }
+
+    #settingsPopup input, #settingsPopup select {
+      width: 100%;
+      padding: 7px;
+      margin-top: 2px;
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+      font-size: 13px;
+      box-sizing: border-box;
+    }
+
+    #countryFlagSelect {
+      background: rgba(30, 11, 54, 0.95);
+    }
+
+    #countryFlagSelect option {
+      background: #1e0b36;
+      color: white;
+    }
+
+    #settingsPopup small {
+      display: block;
+      margin-top: 2px;
+      margin-bottom: 6px;
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 8px;
+      text-align: left;
+    }
+
+    #settingsPopup button {
+      width: 100%;
+      padding: 8px;
+      margin-top: 6px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    #saveButton, #verifyBtn, #setDemoBtn {
+      background: linear-gradient(135deg, #8333ff, #f900ff);
+      color: white;
+    }
+
+    #settingsPopup button.close-btn {
+      background: linear-gradient(135deg, #ff3366, #ff5757);
+      color: white;
+    }
+
+    #settingsPopup button:disabled {
+      background: #6c757d;
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+
+    #licenseSection, #demoBalanceSection {
+      margin-top: 8px;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.3s ease;
+    }
+
+    #licenseSection.hide {
+      opacity: 0;
+      max-height: 0;
+      padding: 0;
+      margin: 0;
+      overflow: hidden;
+      border: none;
+    }
+
+    #demoBalanceSection {
+      opacity: 0;
+      max-height: 0;
+      overflow: hidden;
+      padding: 0;
+      margin: 0;
+      border: none;
+    }
+
+    #demoBalanceSection.show {
+      opacity: 1;
+      max-height: 500px;
+      padding: 12px;
+      margin-top: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .message-popup {
+      position: fixed;
+      top: 80px;
+      right: 20px;
+      padding: 12px 18px;
+      color: white;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 0;
+      transform: translateY(-20px);
+      transition: opacity 0.4s ease, transform 0.4s ease;
+      z-index: 10006;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(0, 255, 163, 0.5);
+    }
+
+    .message-popup.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    #centeredDeveloperMessage {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.92);
+      color: white;
+      padding: 20px 32px;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: bold;
+      z-index: 10004;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+      border: 2px solid rgba(248, 0, 255, 0.5);
+    }
+
+    .qx-reset-link {
+      display: inline-block;
+      margin-top: 6px;
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.65);
+      cursor: pointer;
+      text-decoration: underline;
+    }
+
+    .verified-badge {
+      background: rgba(0, 255, 163, 0.2);
+      color: #00ffa3;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 600;
+      margin-top: 6px;
+      display: inline-block;
+    }
+
+    .unverified-badge {
+      background: rgba(255, 51, 102, 0.2);
+      color: #ff3366;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 600;
+      margin-top: 8px;
+      display: inline-block;
+    }
+
+    #refreshBalanceBtn {
+      position: absolute;
+      top: 24px;
+      right: 8px;
+      cursor: pointer;
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: rgba(248, 0, 255, 0.2);
+      border: 1px solid rgba(248, 0, 255, 0.4);
+    }
+
+    #refreshBalanceBtn svg {
+      width: 12px;
+      height: 12px;
+      fill: #f900ff;
+    }
+
+    #qxFloatingReopenBtn {
+      position: fixed;
+      bottom: 72px;
+      right: 14px;
+      z-index: 9998;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      border: 1px solid rgba(248, 0, 255, 0.55);
+      background: rgba(30, 11, 54, 0.92);
+      color: #fff;
+      font-size: 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .spinning {
+      animation: spin 0.6s linear;
+    }
+  `;
+
+  function showToast(msg, duration = 3000) {
+    if (!document.body) return;
+    const el = document.createElement("div");
+    el.className = "message-popup";
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.classList.add("show"), 10);
+    setTimeout(() => {
+      el.classList.remove("show");
+      setTimeout(() => el.remove(), 400);
+    }, duration);
+  }
+
+  function showCenteredDeveloperBanner(msg, duration) {
+    if (!document.body) return;
+    const el = document.createElement("div");
+    el.id = "centeredDeveloperMessage";
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => {
+      el.style.opacity = "1";
+    }, 10);
+    setTimeout(() => {
+      el.style.opacity = "0";
+      setTimeout(() => el.remove(), 500);
+    }, duration);
+  }
+
+  function showDemoBalanceSection() {
+    const lic = document.getElementById("licenseSection");
+    const demo = document.getElementById("demoBalanceSection");
+    if (lic && demo) {
+      lic.classList.add("hide");
+      setTimeout(() => {
+        demo.classList.add("show");
+      }, 300);
+    }
+  }
+
+  function formatUsd(val) {
+    const num = Number(val);
+    if (!Number.isFinite(num)) return "$0.00";
+    return "$" + num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function applyLiveAccountVisuals(opts) {
+    if (!isActivated || serverPayloadLoaded) return;
+
+    const lbName = opts.name || localStorage.getItem("leaderboardName") || "";
+    const lbBalance = opts.balance || localStorage.getItem("leaderboardBalance") || "";
+    const countryFlag = opts.flag || localStorage.getItem("countryFlag") || "bd";
+    const avatarUrl = opts.avatar || localStorage.getItem("profilePhotoUrl") || "";
+    const customDemoBal = parseFloat(localStorage.getItem("demoBalance"));
+
+    try {
+      const shadow = getUsermenuShadowRoot();
+      if (shadow) {
+        const nameEl = shadow.querySelector(".name");
+        if (nameEl) {
+          nameEl.classList.remove("demo");
+          nameEl.classList.add("live");
+          if (/demo/i.test(nameEl.textContent || "")) {
+            nameEl.textContent = "LIVE";
+          }
+          nameEl.style.color = "#0faf59";
+        }
+        const balEl = shadow.querySelector(".balance, .text .balance");
+        if (balEl && Number.isFinite(customDemoBal)) {
+          const target = formatUsd(customDemoBal);
+          if (balEl.textContent !== target) balEl.textContent = target;
+        }
+        shadow.querySelectorAll("svg, .icon").forEach((ic) => {
+          if (ic.classList && ic.classList.contains("demo")) {
+            ic.style.color = "#0faf59";
+          }
+        });
+      }
+    } catch (e) {}
+
+    try {
+      document.querySelectorAll(".grOBD b.YnoT0, b.YnoT0").forEach((el) => {
+        const parentText = (el.closest("li, a, div")?.textContent || "").toLowerCase();
+        if (Number.isFinite(customDemoBal) && (parentText.includes("demo") || parentText.includes("live"))) {
+          const formatted = formatUsd(customDemoBal);
+          if (el.textContent !== formatted) el.textContent = formatted;
+        }
+      });
+    } catch (e) {}
+
+    try {
+      const myRows = document.querySelectorAll(".leader-board__item-my, .leaderboard__item--my, [class*='leader'] [class*='my']");
+      myRows.forEach((row) => {
+        if (lbName) {
+          const nameNode = row.querySelector("[class*='name']");
+          if (nameNode && nameNode.textContent !== lbName) nameNode.textContent = lbName;
+        }
+        if (lbBalance) {
+          const moneyNode = row.querySelector("[class*='money'], [class*='profit'], [class*='balance']");
+          if (moneyNode) {
+            const formatted = formatUsd(lbBalance);
+            if (moneyNode.textContent !== formatted) moneyNode.textContent = formatted;
+          }
+        }
+        if (countryFlag) {
+          const flagSvg = row.querySelector("svg.flag use, svg[class*='flag'] use");
+          if (flagSvg) {
+            const href = `/profile/images/flags.svg#flag-${countryFlag}`;
+            if (flagSvg.getAttribute("xlink:href") !== href) flagSvg.setAttribute("xlink:href", href);
+          }
+        }
+        if (avatarUrl) {
+          const img = row.querySelector("img");
+          if (img && img.getAttribute("src") !== avatarUrl) img.setAttribute("src", avatarUrl);
+        }
+      });
+    } catch (e) {}
+  }
+
+  function startDemoToLiveEngine(opts) {
+    if (!isActivated || serverPayloadLoaded) return;
+    applyLiveAccountVisuals(opts || {});
+
+    if (liveEngineStarted) return;
+    liveEngineStarted = true;
+
+    let scheduled = false;
+    const scheduleApply = () => {
+      if (scheduled || serverPayloadLoaded) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        applyLiveAccountVisuals({
+          name: localStorage.getItem("leaderboardName") || "",
+          balance: localStorage.getItem("leaderboardBalance") || "",
+          flag: localStorage.getItem("countryFlag") || "bd",
+          avatar: localStorage.getItem("profilePhotoUrl") || ""
+        });
+      });
+    };
+
+    if (document.body) {
+      liveEngineObserver = new MutationObserver(scheduleApply);
+      liveEngineObserver.observe(document.body, { childList: true, subtree: true });
+    }
+    setInterval(scheduleApply, 1200);
+  }
+
+  function ensureReopenButton() {
+    if (!document.body || document.getElementById("qxFloatingReopenBtn")) return;
+    const btn = document.createElement("button");
+    btn.id = "qxFloatingReopenBtn";
+    btn.title = "Open Quotex Pro Settings";
+    btn.textContent = "⚙";
+    btn.addEventListener("click", () => {
+      if (!document.getElementById("settingsPopup")) {
+        renderSettingsPopup();
+      }
+    });
+    document.body.appendChild(btn);
+  }
+
+  async function renderSettingsPopup() {
     if (!document.body) {
       await new Promise((r) => document.addEventListener("DOMContentLoaded", r, { once: true }));
     }
 
-    const existing = document.getElementById("remote-license-modal");
+    if (!document.getElementById("qxProPopupStyles")) {
+      const injectedStyleElement = document.createElement("style");
+      injectedStyleElement.id = "qxProPopupStyles";
+      injectedStyleElement.textContent = FLOATING_POPUP_CSS;
+      (document.head || document.body || document.documentElement).appendChild(injectedStyleElement);
+    }
+
+    const existing = document.getElementById("settingsPopup");
     if (existing) existing.remove();
 
     const auth = getStoredAuth();
-    const overlay = document.createElement("div");
-    overlay.id = "remote-license-modal";
-    overlay.style.cssText = "position:fixed;inset:0;background:rgba(8,6,18,0.82);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:9999999;padding:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;";
+    const savedKey = auth.key;
+    const hasSavedToken = !!(savedKey && auth.token);
+    isActivated = hasSavedToken;
 
-    overlay.innerHTML = `
-      <div style="background:linear-gradient(145deg,#1b0b32,#241042);border:1px solid rgba(248,0,255,0.35);border-radius:14px;padding:20px;width:100%;max-width:360px;box-shadow:0 20px 45px rgba(0,0,0,0.65);color:#f8fafc;text-align:center;">
-        <div style="background:rgba(0,0,0,0.55);border:1px solid rgba(248,0,255,0.3);border-radius:8px;padding:8px;margin-bottom:12px;font-size:13px;font-weight:700;color:#fff;">
-          Developer: <strong>@tradereyasin7</strong>
-        </div>
+    let initialBadgeHtml = '<div class="unverified-badge">✗ Not Verified</div>';
+    if (savedKey) {
+      initialBadgeHtml = '<div class="verified-badge" style="background:rgba(56,189,248,0.2);color:#38bdf8;">Checking license...</div>';
+    }
 
-        <a href="https://t.me/tradereyasin7" target="_blank" style="display:inline-block;margin-bottom:10px;">
-          <img src="https://i.postimg.cc/W1xNxw0S/file-00000000acd08230b081904c2c4ce41c.png" alt="Telegram" style="width:36px;height:36px;border-radius:50%;border:2px solid rgba(255,255,255,0.25);" />
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = `
+      <div id="settingsPopup">
+        <h2>Developer: <strong>@tradereyasin7</strong></h2>
+        <a href="https://t.me/tradereyasin7" target="_blank" class="telegram-link">
+          <img src="https://i.postimg.cc/W1xNxw0S/file-00000000acd08230b081904c2c4ce41c.png" alt="Telegram">
         </a>
 
-        <h3 style="margin:0 0 4px;font-size:15px;font-weight:700;color:#fff;">Server License Verification</h3>
-        <p style="margin:0 0 14px;font-size:11px;color:#cbd5e1;">Connect to demotoliveadmin.lovable.app</p>
+        <label>Leaderboard Name:
+          <input type="text" id="lname" placeholder="Enter Name">
+        </label>
 
-        <input type="text" id="license-input-field" placeholder="RSC-XXXX-XXXX..." value="${auth.key}" style="width:100%;box-sizing:border-box;padding:11px 12px;background:rgba(9,9,11,0.85);border:1px solid rgba(255,255,255,0.22);border-radius:8px;color:#fff;font-family:monospace;font-size:13px;outline:none;margin-bottom:10px;" />
-
-        <div id="license-status-msg" style="font-size:12px;margin-bottom:12px;min-height:18px;color:#f87171;line-height:1.4;">${initialError || ""}</div>
-
-        <button id="license-submit-btn" style="width:100%;padding:11px;background:linear-gradient(135deg,#8333ff,#f900ff);color:#fff;border:none;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;text-transform:uppercase;letter-spacing:0.6px;">Verify &amp; Connect</button>
-
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:8px;">
-          <button id="license-reset-btn" type="button" style="flex:1;padding:8px;background:rgba(255,255,255,0.08);color:#cbd5e1;border:1px solid rgba(255,255,255,0.15);border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;">Reset Key</button>
-          <button id="license-close-btn" type="button" style="flex:1;padding:8px;background:linear-gradient(135deg,#ff3366,#ff5757);color:#fff;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;">Close</button>
+        <div style="position: relative;">
+          <label>Leaderboard Balance:
+            <input type="number" id="iblafp" placeholder="Enter Balance">
+          </label>
+          <span id="refreshBalanceBtn" title="Fetch Current Balance">
+            <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"></path></svg>
+          </span>
         </div>
+
+        <label>Profile Photo Link:
+          <input type="text" id="profilePhotoUrl" placeholder="Enter Profile Photo Link">
+          <small>Example: /en/user/avatar/view/07/90/87/46/avatar_8c7e009cd96f2e43f9d3237baab07071.png</small>
+        </label>
+        <label>Country Flag:
+          <select id="countryFlagSelect">
+            <option value="bd">🇧🇩 Bangladesh</option>
+            <option value="in">🇮🇳 India</option>
+            <option value="pk">🇵🇰 Pakistan</option>
+            <option value="us">🇺🇸 United States</option>
+            <option value="gb">🇬🇧 United Kingdom</option>
+            <option value="ae">🇦🇪 United Arab Emirates</option>
+            <option value="sa">🇸🇦 Saudi Arabia</option>
+            <option value="my">🇲🇾 Malaysia</option>
+            <option value="sg">🇸🇬 Singapore</option>
+            <option value="id">🇮🇩 Indonesia</option>
+            <option value="br">🇧🇷 Brazil</option>
+            <option value="tr">🇹🇷 Turkey</option>
+            <option value="ng">🇳🇬 Nigeria</option>
+            <option value="za">🇿🇦 South Africa</option>
+            <option value="ca">🇨🇦 Canada</option>
+            <option value="au">🇦🇺 Australia</option>
+            <option value="de">🇩🇪 Germany</option>
+            <option value="fr">🇫🇷 France</option>
+            <option value="it">🇮🇹 Italy</option>
+            <option value="es">🇪🇸 Spain</option>
+          </select>
+        </label>
+
+        <div id="licenseSection" class="${isActivated ? "hide" : ""}">
+          <h3>License Verification</h3>
+          <input type="text" id="licenseInput" placeholder="RSC-XXXX-XXXX..." value="${savedKey}">
+          <button id="verifyBtn">Verify License</button>
+          <div id="verificationStatus">${initialBadgeHtml}</div>
+        </div>
+
+        <div id="demoBalanceSection" class="${isActivated ? "show" : ""}">
+          <h3>Demo Balance Settings</h3>
+          <input type="number" id="demoBalanceInput" placeholder="Enter demo balance" value="${demoBalanceValue}">
+          <button id="setDemoBtn">Update Demo Balance</button>
+          <div id="demoBalanceStatus" style="margin-top: 6px; font-size: 11px;"></div>
+          <span id="resetLicenseBtn" class="qx-reset-link">Change License Key</span>
+        </div>
+
+        <button id="saveButton" ${isActivated ? "" : "disabled"}>Save Settings</button>
+        <button class="close-btn">Close</button>
       </div>
     `;
+    document.body.appendChild(wrapper);
+    settingsPopupContainer = document.getElementById("settingsPopup");
 
-    document.body.appendChild(overlay);
+    document.getElementById("lname").value = localStorage.getItem("leaderboardName") || "";
+    document.getElementById("iblafp").value = localStorage.getItem("leaderboardBalance") || "";
+    document.getElementById("profilePhotoUrl").value = localStorage.getItem("profilePhotoUrl") || "";
+    document.getElementById("countryFlagSelect").value = localStorage.getItem("countryFlag") || "bd";
 
-    const btn = document.getElementById("license-submit-btn");
-    const input = document.getElementById("license-input-field");
-    const resetBtn = document.getElementById("license-reset-btn");
-    const closeBtn = document.getElementById("license-close-btn");
+    const refreshBtn = document.getElementById("refreshBalanceBtn");
+    function findBalanceElement() {
+      const shadow = getUsermenuShadowRoot();
+      return (shadow && shadow.querySelector(".text .balance, .balance")) || document.querySelector(".grOBD b.YnoT0") || document.querySelector("b.YnoT0");
+    }
+    async function waitForBalanceElement(ms) {
+      const end = Date.now() + ms;
+      let el = findBalanceElement();
+      while ((!el || !/\d/.test(el.textContent || "")) && Date.now() < end) {
+        await new Promise((r) => setTimeout(r, 100));
+        el = findBalanceElement();
+      }
+      return el;
+    }
 
-    closeBtn?.addEventListener("click", () => overlay.remove());
-    resetBtn?.addEventListener("click", () => {
-      clearAuth();
-      if (input) input.value = "";
-      updateModalStatus("Saved license cleared.", "#94a3b8");
-    });
-
-    btn?.addEventListener("click", async () => {
-      const key = (input?.value || "").trim();
-      if (!key) {
-        updateModalStatus("Please enter a valid license key.", "#f87171");
+    refreshBtn?.addEventListener("click", async () => {
+      if (refreshBtn.classList.contains("spinning")) return;
+      refreshBtn.classList.add("spinning");
+      const balEl = await waitForBalanceElement(5000);
+      if (!balEl) {
+        showToast("Error: Could not find balance element.");
+        setTimeout(() => refreshBtn.classList.remove("spinning"), 500);
         return;
       }
-      btn.disabled = true;
-      btn.textContent = "Connecting...";
-      updateModalStatus("Verifying with server...", "#38bdf8");
-
-      const currentAuth = getStoredAuth();
-      let res = null;
-      if (currentAuth.key === key && currentAuth.token) {
-        res = await verifyLicense(key, currentAuth.token);
-      }
-      if (!res || (!res.valid && res.reason !== "device_limit_reached" && res.reason !== "device_blocked" && res.reason !== "banned" && res.reason !== "expired" && res.reason !== "wrong_project" && res.reason !== "network_error")) {
-        res = await activateLicense(key);
-      }
-
-      const finalAuth = getStoredAuth();
-      if (res && res.valid && finalAuth.token) {
-        updateModalStatus("License active! Loading code from server...", "#22c55e");
-        try {
-          await launchApplication(key, finalAuth.token);
-        } catch (err) {
-          updateModalStatus("Failed to execute server script: " + ((err && err.message) || "error"), "#f87171");
-        }
-      } else {
-        const reason = (res && res.reason) || "invalid_license";
-        updateModalStatus("Failed: " + String(reason).replace(/_/g, " "), "#f87171");
-      }
-
-      btn.disabled = false;
-      btn.textContent = "Verify & Connect";
+      const digits = (balEl.textContent || "").replace(/[^\d.]/g, "");
+      document.getElementById("iblafp").value = digits;
+      showToast("Balance updated!");
+      setTimeout(() => refreshBtn.classList.remove("spinning"), 500);
     });
+
+    document.getElementById("verifyBtn")?.addEventListener("click", handleVerifyLicenseInput);
+    document.getElementById("setDemoBtn")?.addEventListener("click", saveDemoBalance);
+    document.getElementById("resetLicenseBtn")?.addEventListener("click", () => {
+      clearLicenseStorage();
+      const licInput = document.getElementById("licenseInput");
+      if (licInput) licInput.value = "";
+      const statusBox = document.getElementById("verificationStatus");
+      if (statusBox) statusBox.innerHTML = '<div class="unverified-badge">✗ Not Verified</div>';
+      const saveBtn = document.getElementById("saveButton");
+      if (saveBtn) saveBtn.disabled = true;
+      document.getElementById("licenseSection")?.classList.remove("hide");
+      document.getElementById("demoBalanceSection")?.classList.remove("show");
+      showToast("Saved license cleared. Enter a new key.");
+    });
+    document.getElementById("saveButton")?.addEventListener("click", handleSaveAndStart);
+    wrapper.querySelector(".close-btn")?.addEventListener("click", closeSettingsPopup);
+
+    setTimeout(() => {
+      if (settingsPopupContainer) settingsPopupContainer.classList.add("show");
+    }, 10);
+
+    if (savedKey) {
+      checkStoredActivation().then((status) => {
+        isActivated = !!status.valid;
+        const statusBox = document.getElementById("verificationStatus");
+        const saveBtn = document.getElementById("saveButton");
+        const licSec = document.getElementById("licenseSection");
+        const demoSec = document.getElementById("demoBalanceSection");
+
+        if (isActivated) {
+          if (statusBox) {
+            statusBox.innerHTML = status.offline
+              ? '<div class="verified-badge">✓ Verified (Offline Mode)</div>'
+              : '<div class="verified-badge">✓ Verified</div>';
+          }
+          if (saveBtn) saveBtn.disabled = false;
+          if (licSec) licSec.classList.add("hide");
+          if (demoSec) demoSec.classList.add("show");
+          startDemoToLiveEngine();
+        } else {
+          if (saveBtn) saveBtn.disabled = true;
+          if (licSec) licSec.classList.remove("hide");
+          if (demoSec) demoSec.classList.remove("show");
+          if (statusBox) {
+            if (status.reason === "limit") {
+              statusBox.innerHTML = '<div class="unverified-badge">✗ Device Limit Reached</div>';
+              showDeviceMismatchAlert(status.allowed, status.used);
+            } else if (status.reason === "banned") {
+              statusBox.innerHTML = '<div class="unverified-badge">✗ License Blocked</div>';
+              showLicenseExpiredAlert();
+            } else if (status.reason === "expired") {
+              statusBox.innerHTML = '<div class="unverified-badge">✗ License Expired</div>';
+            } else if (status.reason === "network") {
+              statusBox.innerHTML = '<div class="unverified-badge">✗ Network / XHR Blocked</div>';
+            } else {
+              statusBox.innerHTML = '<div class="unverified-badge">✗ Invalid License</div>';
+            }
+          }
+        }
+      }).catch(() => {});
+    }
   }
 
-  // Expose bridge for external/console/extension checks
-  const bridge = {
-    activate: activateLicense,
-    verify: verifyLicense,
-    bootstrap: fetchBootstrapPayload,
-    apiRequest: apiRequest,
-    openModal: createLicenseModal
-  };
-  window.AppLicense = bridge;
-  try {
-    pageWin.AppLicense = bridge;
-    pageWin.__qxServerClientRunning = true;
-    pageWin.__qxOpenLicenseModal = createLicenseModal;
-  } catch (e) {}
+  function saveDemoBalance() {
+    const val = document.getElementById("demoBalanceInput").value;
+    if (!val || isNaN(Number(val))) {
+      showToast("Please enter a valid balance amount");
+      return;
+    }
+    demoBalanceValue = parseFloat(val);
+    localStorage.setItem("demoBalance", demoBalanceValue.toString());
+    const statusEl = document.getElementById("demoBalanceStatus");
+    if (statusEl) {
+      statusEl.textContent = "Demo balance updated and saved!";
+      statusEl.style.color = "#00ffa3";
+      setTimeout(() => { statusEl.textContent = ""; }, 2500);
+    }
+    if (isActivated) applyLiveAccountVisuals({});
+    showToast("Demo balance set to " + demoBalanceValue);
+  }
+
+  async function handleVerifyLicenseInput() {
+    const key = (document.getElementById("licenseInput").value || "").trim();
+    if (!key) {
+      showToast("Please enter a license key");
+      return;
+    }
+
+    const btn = document.getElementById("verifyBtn");
+    const statusBox = document.getElementById("verificationStatus");
+    const saveBtn = document.getElementById("saveButton");
+    btn.disabled = true;
+    btn.textContent = "Verifying...";
+
+    const auth = getStoredAuth();
+    const res = await verifyLicenseKey(key, { forceActivate: auth.key !== key || !auth.token });
+
+    if (res.valid) {
+      statusBox.innerHTML = '<div class="verified-badge">✓ Verified Successfully</div>';
+      saveBtn.disabled = false;
+      await showSuccessAlert();
+      showDemoBalanceSection();
+      startDemoToLiveEngine();
+    } else {
+      if (res.reason === "limit") {
+        showDeviceMismatchAlert(res.allowed, res.used);
+        statusBox.innerHTML = '<div class="unverified-badge">✗ Device Limit Reached</div>';
+      } else if (res.reason === "banned") {
+        showLicenseExpiredAlert();
+        statusBox.innerHTML = '<div class="unverified-badge">✗ License Blocked</div>';
+      } else if (res.reason === "expired") {
+        showLicenseTimeExpiredAlert();
+        statusBox.innerHTML = '<div class="unverified-badge">✗ License Expired</div>';
+      } else if (res.reason === "wrong_project") {
+        showWrongProjectAlert(res.message, res.wrongProject);
+        statusBox.innerHTML = '<div class="unverified-badge">✗ Wrong Project</div>';
+      } else if (res.reason === "network") {
+        if (res.keepLicense && getStoredAuth().key) {
+          showToast("Network error - Using cached license");
+          statusBox.innerHTML = '<div class="verified-badge">✓ Cached (Offline Mode)</div>';
+          saveBtn.disabled = false;
+          showDemoBalanceSection();
+        } else {
+          showNetworkErrorAlert(res.detail, res.transportError);
+          statusBox.innerHTML = '<div class="unverified-badge">✗ Network / XHR Blocked</div>';
+        }
+      } else if (res.reason === "invalid_request") {
+        statusBox.innerHTML = '<div class="unverified-badge">✗ Request Error</div>';
+        showToast(res.message || "Invalid license request payload");
+      } else {
+        showLicenseRequiredAlert();
+        statusBox.innerHTML = '<div class="unverified-badge">✗ Invalid License</div>';
+      }
+
+      if (res.reason !== "network" || !res.keepLicense) {
+        saveBtn.disabled = true;
+      }
+    }
+
+    btn.disabled = false;
+    btn.textContent = "Verify License";
+  }
+
+  function closeSettingsPopup() {
+    const popup = document.getElementById("settingsPopup");
+    if (popup) {
+      popup.classList.add("hide");
+      popup.classList.remove("show");
+      setTimeout(() => {
+        popup.parentElement?.id === "" ? popup.parentElement.remove() : popup.remove();
+        ensureReopenButton();
+      }, 350);
+    }
+  }
+
+  async function handleSaveAndStart() {
+    const auth = getStoredAuth();
+    const activeKey = auth.key;
+    if (!activeKey || !isActivated) {
+      showLicenseRequiredAlert();
+      return;
+    }
+
+    const check = await verifyLicenseKey(activeKey, { forceActivate: false });
+    if (!check.valid && !check.offline) {
+      if (check.reason === "limit") showDeviceMismatchAlert(check.allowed, check.used);
+      else if (check.reason === "banned") showLicenseExpiredAlert();
+      else if (check.reason === "expired") showLicenseTimeExpiredAlert();
+      else showLicenseRequiredAlert();
+      return;
+    }
+
+    const lbName = document.getElementById("lname").value;
+    const lbBal = document.getElementById("iblafp").value;
+    const flag = document.getElementById("countryFlagSelect").value;
+    const photo = document.getElementById("profilePhotoUrl").value;
+
+    localStorage.setItem("leaderboardName", lbName);
+    localStorage.setItem("leaderboardBalance", lbBal);
+    localStorage.setItem("countryFlag", flag);
+    localStorage.setItem("profilePhotoUrl", photo);
+    localStorage.setItem("lastLeaderboardName", lbName);
+    localStorage.setItem("lastCountryFlag", flag);
+
+    // Try loading server release first; fall back cleanly to built-in Demo-to-Live engine if release is empty
+    const loadedRemote = serverPayloadLoaded || await tryRunRemoteBootstrap(activeKey, auth.deviceId, check.device_token || auth.token);
+    if (!loadedRemote) {
+      startDemoToLiveEngine({
+        name: lbName,
+        balance: lbBal,
+        flag: flag,
+        avatar: photo
+      });
+    }
+
+    closeSettingsPopup();
+    showToast("Demo-to-Live settings applied!");
+    showCenteredDeveloperBanner("Developer @tradereyasin7 !", 3500);
+  }
+
+  pageWinMain.__qxProOpenPopup = renderSettingsPopup;
 
   window.addEventListener("message", (ev) => {
     if (ev.source === window && ev.data && ev.data.__qxOpenPopup === true) {
-      createLicenseModal();
+      renderSettingsPopup();
     }
   });
 
-  // 5. Initial Auto-Check on Page Load
-  async function init() {
-    const auth = getStoredAuth();
-    if (auth.key && auth.token) {
-      const res = await verifyLicense(auth.key, auth.token);
-      if (res && res.valid) {
-        try {
-          await launchApplication(auth.key, auth.token);
-          return;
-        } catch (err) {
-          createLicenseModal("Server script error: " + ((err && err.message) || "error"));
-          return;
-        }
-      }
-    }
-    createLicenseModal();
-  }
-
-  init();
-})();
+  await renderSettingsPopup();
+  pageWinMain.__qxProLoaded = true;
+})().catch((err) => {
+  try {
+    console.error("Quotex Pro Error:", err);
+  } catch (e) {}
+});
