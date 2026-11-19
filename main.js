@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Quotex Demo to Live Pro + Remote Server Client
 // @namespace    https://demotoliveadmin.lovable.app
-// @version      3.1.0
+// @version      3.2.0
 // @description  Quotex Demo to Live Pro with Demotoliveadmin Remote Server Sync & Original Popup UI
 // @author       TRADER EYASIN
 // @match        *://qxbroker.com/*
@@ -1250,25 +1250,6 @@
       fill: #f900ff;
     }
 
-    #qxFloatingReopenBtn {
-      position: fixed;
-      bottom: 72px;
-      right: 14px;
-      z-index: 9998;
-      width: 38px;
-      height: 38px;
-      border-radius: 50%;
-      border: 1px solid rgba(248, 0, 255, 0.55);
-      background: rgba(30, 11, 54, 0.92);
-      color: #fff;
-      font-size: 16px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
-    }
-
     @keyframes spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
@@ -1426,18 +1407,59 @@
     setInterval(scheduleApply, 1200);
   }
 
-  function ensureReopenButton() {
-    if (!document.body || document.getElementById("qxFloatingReopenBtn")) return;
-    const btn = document.createElement("button");
-    btn.id = "qxFloatingReopenBtn";
-    btn.title = "Open Quotex Pro Settings";
-    btn.textContent = "⚙";
-    btn.addEventListener("click", () => {
-      if (!document.getElementById("settingsPopup")) {
-        renderSettingsPopup();
+  function isQuotexNotificationClick(rawTarget) {
+    if (!rawTarget || typeof rawTarget.closest !== "function") return false;
+    const el = rawTarget;
+    if (el.closest("#settingsPopup, .swal2-container, .message-popup, #centeredDeveloperMessage")) return false;
+    if (el.closest("qx-usermenu-trigger, .uoy2n, .QE4Zb, a[href*='deposit'], [class*='deposit' i], [class*='logo' i], [class*='burger' i], [class*='sidebar' i], a[href='/'], a[href*='/trade'], a[href*='/demo-trade']")) return false;
+
+    const directMatch = el.closest(
+      ".header__notifications, [class*='notification' i], [id*='notification' i], [data-testid*='notification' i], [aria-label*='notification' i], [title*='notification' i], [class*='bell' i]"
+    );
+    if (directMatch) {
+      const rect = typeof directMatch.getBoundingClientRect === "function" ? directMatch.getBoundingClientRect() : null;
+      if (!rect || (rect.width <= 120 && rect.height <= 90 && rect.top <= 140)) {
+        return true;
       }
-    });
-    document.body.appendChild(btn);
+    }
+
+    const clickable = el.closest("button, a, [role='button'], .RyAkb > div, .RyAkb > span, header > div, .header > div");
+    if (clickable) {
+      const txt = (clickable.textContent || "").trim();
+      if (/deposit|withdraw|demo|live/i.test(txt)) return false;
+      const rect = typeof clickable.getBoundingClientRect === "function" ? clickable.getBoundingClientRect() : null;
+      if (rect && rect.top <= 130 && rect.width > 0 && rect.width <= 96 && rect.height <= 72) {
+        const uses = typeof clickable.querySelectorAll === "function" ? clickable.querySelectorAll("use") : [];
+        for (let i = 0; i < uses.length; i++) {
+          const href = (uses[i].getAttribute("xlink:href") || uses[i].getAttribute("href") || "").toLowerCase();
+          if (href.includes("notif") || href.includes("bell") || href.includes("alert")) {
+            return true;
+          }
+        }
+        const headerBar = clickable.closest(".RyAkb, header, .header");
+        if (headerBar && headerBar.querySelector("qx-usermenu-trigger, .uoy2n") && clickable.querySelector("svg")) {
+          if (/\d+/.test(txt) || rect.left >= 48) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  function bindQuotexNotificationTrigger() {
+    if (pageWinMain.__qxNotifTriggerBound) return;
+    pageWinMain.__qxNotifTriggerBound = true;
+    document.addEventListener("click", (ev) => {
+      if (document.getElementById("settingsPopup")) return;
+      if (!isQuotexNotificationClick(ev.target)) return;
+      try {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (typeof ev.stopImmediatePropagation === "function") ev.stopImmediatePropagation();
+      } catch (e) {}
+      renderSettingsPopup();
+    }, true);
   }
 
   async function renderSettingsPopup() {
@@ -1716,13 +1738,13 @@
   }
 
   function closeSettingsPopup() {
+    document.getElementById("qxFloatingReopenBtn")?.remove();
     const popup = document.getElementById("settingsPopup");
     if (popup) {
       popup.classList.add("hide");
       popup.classList.remove("show");
       setTimeout(() => {
         popup.parentElement?.id === "" ? popup.parentElement.remove() : popup.remove();
-        ensureReopenButton();
       }, 350);
     }
   }
@@ -1773,6 +1795,8 @@
   }
 
   pageWinMain.__qxProOpenPopup = renderSettingsPopup;
+  bindQuotexNotificationTrigger();
+  document.getElementById("qxFloatingReopenBtn")?.remove();
 
   window.addEventListener("message", (ev) => {
     if (ev.source === window && ev.data && ev.data.__qxOpenPopup === true) {
