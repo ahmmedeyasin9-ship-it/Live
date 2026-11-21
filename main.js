@@ -1,6 +1,6 @@
 /**
  * 0X Premium Full Script
- * (Background Demo Remove + Flick Off + Tier/Demo/Leaderboard Gold Medal & Avatar Fixed)
+ * (Background Demo Remove + Flick Off + Tier/Demo/Leaderboard Clean Row Fixed)
  */
 (function () {
     'use strict';
@@ -536,7 +536,6 @@
         if (/medal|trophy|crown|place|rank|award|badge|gold|silver|bronze/i.test(meta)) {
             return true;
         }
-        // Any <img> that comes BEFORE the flag in DOM order is the Rank 1/2/3 medal icon, never the user avatar
         if (flagEl) {
             const pos = flagEl.compareDocumentPosition(img);
             if ((pos & Node.DOCUMENT_POSITION_FOLLOWING) === 0) {
@@ -580,7 +579,6 @@
 
         const rank = rankTextNode ? parseInt(rankTextNode.nodeValue.trim(), 10) : fallbackRank;
 
-        // Detect flag (<use> with flag- or <svg class*="flag-"> or <img> with flag)
         let flagUseEl = el.querySelector('use[href*="flag-"], use[xlink\\:href*="flag-"]');
         let flagSvgEl = flagUseEl ? flagUseEl.closest('svg') : el.querySelector('svg[class*="flag-"]');
         if (flagSvgEl && !flagUseEl) {
@@ -590,19 +588,37 @@
         const flagImgEl = imgs.find(img => /flag/i.test(img.src || '') || /flag/i.test(img.className || '')) || null;
         const flagRefEl = flagSvgEl || flagImgEl || null;
 
-        // ONLY pick user avatar <img> that comes AFTER the flag (never the Rank 1 Gold Medal <img> on the left)
         const avatarImgEl = imgs.find(img =>
             img !== flagImgEl &&
             !(img.src || '').includes('flagcdn') &&
             !isMedalOrRankImg(img, flagRefEl)
         ) || null;
 
+        const avatarSvgEl = (!avatarImgEl && flagRefEl)
+            ? [...el.querySelectorAll('svg')].find(svg =>
+                svg !== flagSvgEl &&
+                (flagRefEl.compareDocumentPosition(svg) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+            ) || null
+            : null;
+
+        // Detect dedicated avatar wrapper (e.g., <div class="avatar"><img></div>) without touching flag or name
+        const rawAvatarEl = avatarImgEl || avatarSvgEl;
+        let avatarWrapEl = null;
+        if (rawAvatarEl && rawAvatarEl.parentElement && rawAvatarEl.parentElement !== el) {
+            const p = rawAvatarEl.parentElement;
+            const containsFlag = flagRefEl && p.contains(flagRefEl);
+            const containsName = nameTextNode && p.contains(nameTextNode);
+            if (!containsFlag && !containsName) {
+                avatarWrapEl = p;
+            }
+        }
+
         const origFlagHref = flagUseEl
             ? (flagUseEl.getAttribute('href') || flagUseEl.getAttribute('xlink:href') || '')
             : '';
 
-        if (!el.__qxOrigRowDataV2) {
-            el.__qxOrigRowDataV2 = {
+        if (!el.__qxOrigRowDataV3) {
+            el.__qxOrigRowDataV3 = {
                 rank,
                 amount,
                 profitText: profitTextNode.nodeValue,
@@ -626,7 +642,9 @@
             flagUseEl,
             flagImgEl,
             avatarImgEl,
-            orig: el.__qxOrigRowDataV2
+            avatarSvgEl,
+            avatarWrapEl,
+            orig: el.__qxOrigRowDataV3
         };
     }
 
@@ -707,13 +725,23 @@
 
         applyFlagToRow(row, data.flagHref, data.flagCode || countryCode, Boolean(data.useFlagOverlay));
 
-        if (row.avatarImgEl) {
-            const safeAvatarSrc = (data.avatarSrc && data.avatarSrc.length > 0)
-                ? data.avatarSrc
-                : DEFAULT_USER_AVATAR_SVG;
-            if (row.avatarImgEl.src !== safeAvatarSrc) {
-                row.avatarImgEl.src = safeAvatarSrc;
+        // Hide middle avatar logo on user's highlighted row; restore cleanly on other rows
+        if (data.hideAvatar) {
+            if (row.avatarWrapEl) row.avatarWrapEl.style.setProperty('display', 'none', 'important');
+            if (row.avatarImgEl) row.avatarImgEl.style.setProperty('display', 'none', 'important');
+            if (row.avatarSvgEl) row.avatarSvgEl.style.setProperty('display', 'none', 'important');
+        } else {
+            if (row.avatarWrapEl) row.avatarWrapEl.style.removeProperty('display');
+            if (row.avatarImgEl) {
+                row.avatarImgEl.style.removeProperty('display');
+                const safeAvatarSrc = (data.avatarSrc && data.avatarSrc.length > 0)
+                    ? data.avatarSrc
+                    : DEFAULT_USER_AVATAR_SVG;
+                if (row.avatarImgEl.src !== safeAvatarSrc) {
+                    row.avatarImgEl.src = safeAvatarSrc;
+                }
             }
+            if (row.avatarSvgEl) row.avatarSvgEl.style.removeProperty('display');
         }
 
         if (isHighlighted) {
@@ -765,7 +793,7 @@
                         flagHref: userFlagHref,
                         flagCode: countryCode,
                         useFlagOverlay: true,
-                        avatarSrc: DEFAULT_USER_AVATAR_SVG
+                        hideAvatar: true
                     },
                     true,
                     countryCode
@@ -783,6 +811,7 @@
                         flagHref: prevOrig.flagHref,
                         flagCode: prevFlagMatch ? prevFlagMatch[1] : (prevClassMatch ? prevClassMatch[1] : undefined),
                         useFlagOverlay: false,
+                        hideAvatar: false,
                         avatarSrc: prevOrig.avatarSrc || DEFAULT_USER_AVATAR_SVG
                     },
                     false,
