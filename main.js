@@ -1,6 +1,6 @@
 /**
  * 0X Premium Full Script
- * (Background Demo Remove + Flick Off + Tier/Demo/Leaderboard Top Card & List Row Fixed)
+ * (Background Demo Remove + Flick Off + Tier/Demo/Leaderboard Gold Medal & Avatar Fixed)
  */
 (function () {
     'use strict';
@@ -505,7 +505,6 @@
     }
 
     function findLeaderboardRowElements(card) {
-        // Find the list container whose direct children are the ranked rows
         const dollarNodes = [];
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
         let n;
@@ -532,8 +531,22 @@
         return [];
     }
 
+    function isMedalOrRankImg(img, flagEl) {
+        const meta = ((img.src || '') + ' ' + (img.className || '') + ' ' + (img.alt || '')).toLowerCase();
+        if (/medal|trophy|crown|place|rank|award|badge|gold|silver|bronze/i.test(meta)) {
+            return true;
+        }
+        // Any <img> that comes BEFORE the flag in DOM order is the Rank 1/2/3 medal icon, never the user avatar
+        if (flagEl) {
+            const pos = flagEl.compareDocumentPosition(img);
+            if ((pos & Node.DOCUMENT_POSITION_FOLLOWING) === 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     function inspectLeaderboardRow(el, fallbackRank) {
-        // Walk ALL text nodes inside rowEl (works even if name text sits next to <svg>/<img>)
         const textNodes = [];
         const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
         let tn;
@@ -575,14 +588,21 @@
         }
         const imgs = [...el.querySelectorAll('img:not(.qx-row-flag-circle)')];
         const flagImgEl = imgs.find(img => /flag/i.test(img.src || '') || /flag/i.test(img.className || '')) || null;
-        const avatarImgEl = imgs.find(img => img !== flagImgEl && !(img.src || '').includes('flagcdn')) || null;
+        const flagRefEl = flagSvgEl || flagImgEl || null;
+
+        // ONLY pick user avatar <img> that comes AFTER the flag (never the Rank 1 Gold Medal <img> on the left)
+        const avatarImgEl = imgs.find(img =>
+            img !== flagImgEl &&
+            !(img.src || '').includes('flagcdn') &&
+            !isMedalOrRankImg(img, flagRefEl)
+        ) || null;
 
         const origFlagHref = flagUseEl
             ? (flagUseEl.getAttribute('href') || flagUseEl.getAttribute('xlink:href') || '')
             : '';
 
-        if (!el.__qxOrigRowData) {
-            el.__qxOrigRowData = {
+        if (!el.__qxOrigRowDataV2) {
+            el.__qxOrigRowDataV2 = {
                 rank,
                 amount,
                 profitText: profitTextNode.nodeValue,
@@ -591,7 +611,7 @@
                 flagHref: origFlagHref,
                 flagClass: flagSvgEl ? (flagSvgEl.getAttribute('class') || '') : '',
                 flagImgSrc: flagImgEl ? flagImgEl.src : '',
-                avatarSrc: avatarImgEl ? avatarImgEl.src : '',
+                avatarSrc: avatarImgEl ? (avatarImgEl.src || DEFAULT_USER_AVATAR_SVG) : DEFAULT_USER_AVATAR_SVG,
                 bgColor: el.style.backgroundColor || '',
                 borderRadius: el.style.borderRadius || ''
             };
@@ -606,7 +626,7 @@
             flagUseEl,
             flagImgEl,
             avatarImgEl,
-            orig: el.__qxOrigRowData
+            orig: el.__qxOrigRowDataV2
         };
     }
 
@@ -648,18 +668,16 @@
             }
         }
 
-        // Fallback if flag <svg> had inline paths without <use>
-        if (!row.flagUseEl && !row.flagImgEl) {
-            const firstSvg = row.el.querySelector('svg');
+        if (!row.flagUseEl && !row.flagImgEl && row.flagSvgEl) {
             if (useOverlay && targetFlagCode) {
                 const cdnSrc = `https://flagcdn.com/w40/${targetFlagCode}.png`;
                 let overlayImg = row.el.querySelector('.qx-row-flag-circle');
-                if (!overlayImg && firstSvg && firstSvg.parentNode) {
+                if (!overlayImg && row.flagSvgEl.parentNode) {
                     overlayImg = document.createElement('img');
                     overlayImg.className = 'qx-row-flag-circle';
                     overlayImg.src = cdnSrc;
-                    firstSvg.style.setProperty('display', 'none', 'important');
-                    firstSvg.parentNode.insertBefore(overlayImg, firstSvg);
+                    row.flagSvgEl.style.setProperty('display', 'none', 'important');
+                    row.flagSvgEl.parentNode.insertBefore(overlayImg, row.flagSvgEl);
                 } else if (overlayImg) {
                     if (overlayImg.src !== cdnSrc) overlayImg.src = cdnSrc;
                     overlayImg.style.display = 'inline-block';
@@ -667,7 +685,7 @@
             } else {
                 const overlayImg = row.el.querySelector('.qx-row-flag-circle');
                 if (overlayImg) overlayImg.style.display = 'none';
-                if (firstSvg) firstSvg.style.removeProperty('display');
+                row.flagSvgEl.style.removeProperty('display');
             }
         }
     }
@@ -689,9 +707,12 @@
 
         applyFlagToRow(row, data.flagHref, data.flagCode || countryCode, Boolean(data.useFlagOverlay));
 
-        if (row.avatarImgEl && data.avatarSrc !== undefined) {
-            if (row.avatarImgEl.src !== data.avatarSrc) {
-                row.avatarImgEl.src = data.avatarSrc;
+        if (row.avatarImgEl) {
+            const safeAvatarSrc = (data.avatarSrc && data.avatarSrc.length > 0)
+                ? data.avatarSrc
+                : DEFAULT_USER_AVATAR_SVG;
+            if (row.avatarImgEl.src !== safeAvatarSrc) {
+                row.avatarImgEl.src = safeAvatarSrc;
             }
         }
 
@@ -744,7 +765,7 @@
                         flagHref: userFlagHref,
                         flagCode: countryCode,
                         useFlagOverlay: true,
-                        avatarSrc: row.avatarImgEl ? DEFAULT_USER_AVATAR_SVG : undefined
+                        avatarSrc: DEFAULT_USER_AVATAR_SVG
                     },
                     true,
                     countryCode
@@ -762,7 +783,7 @@
                         flagHref: prevOrig.flagHref,
                         flagCode: prevFlagMatch ? prevFlagMatch[1] : (prevClassMatch ? prevClassMatch[1] : undefined),
                         useFlagOverlay: false,
-                        avatarSrc: prevOrig.avatarSrc
+                        avatarSrc: prevOrig.avatarSrc || DEFAULT_USER_AVATAR_SVG
                     },
                     false,
                     countryCode
