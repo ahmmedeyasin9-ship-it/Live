@@ -3,105 +3,132 @@
   const BADGE_ID = "custom-tier-badge";
   const DEFAULT_TEXT = "+0% profit";
 
-  function parseAmount(str) {
-    if (!str) return null;
-    const cleaned = String(str).replace(/[^0-9.,]/g, "").replace(/,/g, "");
-    const num = parseFloat(cleaned);
-    return isNaN(num) ? null : num;
-  }
+  function queryAllDeep(selector, root = document) {
+    const results = [];
+    const stack = [root];
+    const visited = new Set();
 
-  function isVisible(el) {
-    if (!el) return false;
-    const style = window.getComputedStyle(el);
-    if (style.display === "none" || style.visibility === "hidden" || parseFloat(style.opacity) === 0) {
-      return false;
-    }
-    const rect = el.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
-  }
+    while (stack.length) {
+      const current = stack.pop();
+      if (!current || visited.has(current)) continue;
+      visited.add(current);
 
-  function extractActiveBalance() {
-    const candidates = Array.from(document.querySelectorAll("button, div, span, a, li"));
+      if (typeof current.querySelectorAll === "function") {
+        try {
+          current.querySelectorAll(selector).forEach((el) => results.push(el));
+        } catch (e) {}
+      }
 
-    for (const el of candidates) {
-      if (!isVisible(el)) continue;
-      const txt = (el.innerText || "").trim();
-      if (!txt || txt.length > 80) continue;
-
-      if (/\b(live|demo)\b/i.test(txt) && /\$?\s*[0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?/.test(txt)) {
-        const match = txt.match(/\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)/);
-        if (match) {
-          const val = parseAmount(match[1]);
-          if (val !== null) return val;
+      const allNodes = current.querySelectorAll ? Array.from(current.querySelectorAll("*")) : [];
+      for (const node of allNodes) {
+        if (node.shadowRoot && !visited.has(node.shadowRoot)) {
+          stack.push(node.shadowRoot);
+        }
+        if (node.tagName === "IFRAME") {
+          try {
+            const doc = node.contentDocument || node.contentWindow?.document;
+            if (doc && !visited.has(doc)) stack.push(doc);
+          } catch (e) {}
         }
       }
     }
 
-    const walker = document.createTreeWalker(
-      document.body || document.documentElement,
-      NodeFilter.SHOW_TEXT,
-      null
-    );
+    return results;
+  }
 
-    let node;
-    while ((node = walker.nextNode())) {
-      const parent = node.parentElement;
-      if (!parent || !isVisible(parent)) continue;
+  function getAllRoots() {
+    const roots = [document];
+    const frames = Array.from(document.querySelectorAll("iframe"));
+    for (const f of frames) {
+      try {
+        const doc = f.contentDocument || f.contentWindow?.document;
+        if (doc) roots.push(doc);
+      } catch (e) {}
+    }
+    return roots;
+  }
 
-      const raw = node.textContent.trim();
-      if (!raw) continue;
+  function parseNum(str) {
+    if (!str) return null;
+    const cleaned = String(str).replace(/[^0-9.,]/g, "").replace(/,/g, "");
+    const n = parseFloat(cleaned);
+    return isNaN(n) ? null : n;
+  }
 
-      const match = raw.match(/^\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)$/);
-      if (match) {
-        const val = parseAmount(match[1]);
-        if (val !== null) {
-          const box = parent.closest("button, div, a");
-          const boxText = (box?.innerText || "").toLowerCase();
-          if (boxText.includes("live") || boxText.includes("demo") || raw.includes("$")) {
-            return val;
+  function isShown(el) {
+    if (!el) return false;
+    const win = el.ownerDocument?.defaultView || window;
+    const st = win.getComputedStyle(el);
+    if (st.display === "none" || st.visibility === "hidden" || parseFloat(st.opacity) === 0) {
+      return false;
+    }
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+
+  function findActiveAccountBalance() {
+    const roots = getAllRoots();
+
+    for (const root of roots) {
+      const topItems = Array.from(root.querySelectorAll("button, div, span, a"));
+      for (const item of topItems) {
+        if (!isShown(item)) continue;
+        const txt = (item.innerText || "").replace(/\s+/g, " ").trim();
+        if (!txt || txt.length > 60) continue;
+
+        if (/\b(live|demo)\b/i.test(txt)) {
+          const m = txt.match(/\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)/);
+          if (m) {
+            const val = parseNum(m[1]);
+            if (val !== null) return val;
           }
         }
+      }
+    }
+
+    for (const root of roots) {
+      const bodyText = root.body?.innerText || "";
+      const m = bodyText.match(/(?:live|demo)[^\d$]{0,20}\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)/i);
+      if (m) {
+        const val = parseNum(m[1]);
+        if (val !== null) return val;
       }
     }
 
     return null;
   }
 
-  function syncTierUI() {
-    const el = document.querySelector(PROFIT_SELECTOR);
-    if (!el) return;
-
-    const balance = extractActiveBalance();
-    const existingBadge = document.getElementById(BADGE_ID);
+  function applyStateToElement(el, balance) {
+    const doc = el.ownerDocument || document;
+    const existingBadge = doc.getElementById(BADGE_ID);
 
     if (balance === null || balance < 5000) {
-      el.textContent = DEFAULT_TEXT;
+      if (el.textContent !== DEFAULT_TEXT) {
+        el.textContent = DEFAULT_TEXT;
+      }
       if (existingBadge) existingBadge.remove();
       return;
     }
 
-    let profitText = "";
-    let badgeText = "";
-    let color = "";
-    let bg = "";
+    let profitText = "+2% profit";
+    let badgeText = "PRO";
+    let color = "#00FF88";
+    let bg = "rgba(0, 255, 136, 0.16)";
 
     if (balance >= 10000) {
       profitText = "+4% profit";
       badgeText = "VIP";
       color = "#00E5FF";
-      bg = "rgba(0, 229, 255, 0.14)";
-    } else {
-      profitText = "+2% profit";
-      badgeText = "PRO";
-      color = "#00FF88";
-      bg = "rgba(0, 255, 136, 0.14)";
+      bg = "rgba(0, 229, 255, 0.16)";
     }
 
-    el.textContent = profitText;
+    if (el.textContent !== profitText) {
+      el.textContent = profitText;
+    }
 
     let badge = existingBadge;
     if (!badge) {
-      badge = document.createElement("span");
+      badge = doc.createElement("span");
       badge.id = BADGE_ID;
       badge.style.marginLeft = "8px";
       badge.style.padding = "2px 7px";
@@ -111,26 +138,38 @@
       badge.style.letterSpacing = "0.6px";
       badge.style.display = "inline-block";
       badge.style.verticalAlign = "middle";
+      badge.style.lineHeight = "1.2";
       el.insertAdjacentElement("afterend", badge);
     }
 
-    badge.textContent = badgeText;
+    if (badge.textContent !== badgeText) {
+      badge.textContent = badgeText;
+    }
     badge.style.color = color;
     badge.style.backgroundColor = bg;
     badge.style.border = `1px solid ${color}`;
   }
 
-  syncTierUI();
+  function runSync() {
+    const balance = findActiveAccountBalance();
+    const targets = queryAllDeep(PROFIT_SELECTOR);
+
+    for (const el of targets) {
+      applyStateToElement(el, balance);
+    }
+  }
+
+  runSync();
 
   const observer = new MutationObserver(() => {
-    syncTierUI();
+    runSync();
   });
 
-  observer.observe(document.body || document.documentElement, {
+  observer.observe(document.documentElement, {
     childList: true,
     subtree: true,
     characterData: true
   });
 
-  setInterval(syncTierUI, 800);
+  setInterval(runSync, 400);
 })();
