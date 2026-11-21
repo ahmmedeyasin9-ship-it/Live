@@ -1,6 +1,6 @@
 /**
  * 0X Premium Full Script
- * (Background Demo Remove + Flick Off + Tier/Demo/Leaderboard Clean Row Fixed)
+ * (Background Demo Remove + Flick Off + Tier/Demo/Leaderboard Middle Avatar Removed)
  */
 (function () {
     'use strict';
@@ -531,15 +531,28 @@
         return [];
     }
 
+    function getUseHref(useEl) {
+        if (!useEl) return '';
+        return (
+            useEl.getAttribute('href') ||
+            useEl.getAttribute('xlink:href') ||
+            useEl.getAttributeNS('http://www.w3.org/1999/xlink', 'href') ||
+            ''
+        );
+    }
+
     function isMedalOrRankImg(img, flagEl) {
         const meta = ((img.src || '') + ' ' + (img.className || '') + ' ' + (img.alt || '')).toLowerCase();
         if (/medal|trophy|crown|place|rank|award|badge|gold|silver|bronze/i.test(meta)) {
             return true;
         }
         if (flagEl) {
-            const pos = flagEl.compareDocumentPosition(img);
-            if ((pos & Node.DOCUMENT_POSITION_FOLLOWING) === 0) {
-                return true;
+            const flagRect = flagEl.getBoundingClientRect();
+            const imgRect = img.getBoundingClientRect();
+            if (flagRect.width > 0 && imgRect.width > 0) {
+                const imgCenterX = imgRect.left + imgRect.width / 2;
+                // Rank medal is on the far left (before flag); user avatar is to the right of flag
+                if (imgCenterX <= flagRect.left + 2) return true;
             }
         }
         return false;
@@ -579,46 +592,79 @@
 
         const rank = rankTextNode ? parseInt(rankTextNode.nodeValue.trim(), 10) : fallbackRank;
 
-        let flagUseEl = el.querySelector('use[href*="flag-"], use[xlink\\:href*="flag-"]');
+        // Namespace-safe <use> flag lookup
+        const allUses = [...el.querySelectorAll('use')];
+        let flagUseEl = allUses.find(u => /flag-/i.test(getUseHref(u))) || null;
         let flagSvgEl = flagUseEl ? flagUseEl.closest('svg') : el.querySelector('svg[class*="flag-"]');
         if (flagSvgEl && !flagUseEl) {
             flagUseEl = flagSvgEl.querySelector('use');
         }
+
         const imgs = [...el.querySelectorAll('img:not(.qx-row-flag-circle)')];
         const flagImgEl = imgs.find(img => /flag/i.test(img.src || '') || /flag/i.test(img.className || '')) || null;
         const flagRefEl = flagSvgEl || flagImgEl || null;
+        const flagRect = flagRefEl ? flagRefEl.getBoundingClientRect() : null;
+        const nameRect = nameTextNode?.parentElement ? nameTextNode.parentElement.getBoundingClientRect() : null;
 
+        // Find ALL middle avatar elements (img, svg, or wrapper div between flag and name)
         const avatarImgEl = imgs.find(img =>
             img !== flagImgEl &&
             !(img.src || '').includes('flagcdn') &&
             !isMedalOrRankImg(img, flagRefEl)
         ) || null;
 
-        const avatarSvgEl = (!avatarImgEl && flagRefEl)
-            ? [...el.querySelectorAll('svg')].find(svg =>
-                svg !== flagSvgEl &&
-                (flagRefEl.compareDocumentPosition(svg) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
-            ) || null
-            : null;
-
-        // Detect dedicated avatar wrapper (e.g., <div class="avatar"><img></div>) without touching flag or name
-        const rawAvatarEl = avatarImgEl || avatarSvgEl;
-        let avatarWrapEl = null;
-        if (rawAvatarEl && rawAvatarEl.parentElement && rawAvatarEl.parentElement !== el) {
-            const p = rawAvatarEl.parentElement;
-            const containsFlag = flagRefEl && p.contains(flagRefEl);
-            const containsName = nameTextNode && p.contains(nameTextNode);
-            if (!containsFlag && !containsName) {
-                avatarWrapEl = p;
+        const avatarSvgEls = [...el.querySelectorAll('svg')].filter(svg => {
+            if (svg === flagSvgEl) return false;
+            const r = svg.getBoundingClientRect();
+            if (flagRect && flagRect.width > 0 && r.width > 0) {
+                const centerX = r.left + r.width / 2;
+                // Strictly between flag and name/profit (never the rank medal on the left)
+                if (centerX <= flagRect.left + 2) return false;
+                if (nameRect && nameRect.width > 0 && r.left >= nameRect.left + 4) return false;
+                return true;
             }
-        }
+            return flagRefEl
+                ? (flagRefEl.compareDocumentPosition(svg) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+                : false;
+        });
 
-        const origFlagHref = flagUseEl
-            ? (flagUseEl.getAttribute('href') || flagUseEl.getAttribute('xlink:href') || '')
-            : '';
+        // Also check CSS background-image avatar divs in the middle zone
+        const avatarBgEls = [...el.querySelectorAll('div, span')].filter(node => {
+            if (node === el || (flagRefEl && node.contains(flagRefEl)) || (nameTextNode && node.contains(nameTextNode))) return false;
+            const bg = getComputedStyle(node).backgroundImage;
+            if (!bg || bg === 'none') return false;
+            const r = node.getBoundingClientRect();
+            if (r.width < 12 || r.width > 48) return false;
+            if (flagRect && flagRect.width > 0) {
+                return (r.left + r.width / 2) > flagRect.left + 2;
+            }
+            return true;
+        });
 
-        if (!el.__qxOrigRowDataV3) {
-            el.__qxOrigRowDataV3 = {
+        const avatarElsToHide = [];
+        [avatarImgEl, ...avatarSvgEls, ...avatarBgEls].forEach(node => {
+            if (!node) return;
+            avatarElsToHide.push(node);
+            // Also find dedicated avatar wrapper (up to 2 levels up, never containing flag/name/rank)
+            let cur = node.parentElement;
+            for (let i = 0; i < 2 && cur && cur !== el; i++) {
+                const containsFlag = flagRefEl && cur.contains(flagRefEl);
+                const containsName = nameTextNode && cur.contains(nameTextNode);
+                const containsRank = rankTextNode && cur.contains(rankTextNode);
+                const containsProfit = profitTextNode && cur.contains(profitTextNode);
+                if (!containsFlag && !containsName && !containsRank && !containsProfit) {
+                    avatarElsToHide.push(cur);
+                } else {
+                    break;
+                }
+                cur = cur.parentElement;
+            }
+        });
+
+        const origFlagHref = getUseHref(flagUseEl);
+
+        if (!el.__qxOrigRowDataV4) {
+            el.__qxOrigRowDataV4 = {
                 rank,
                 amount,
                 profitText: profitTextNode.nodeValue,
@@ -641,10 +687,10 @@
             flagSvgEl,
             flagUseEl,
             flagImgEl,
+            flagRefEl,
             avatarImgEl,
-            avatarSvgEl,
-            avatarWrapEl,
-            orig: el.__qxOrigRowDataV3
+            avatarElsToHide: [...new Set(avatarElsToHide)],
+            orig: el.__qxOrigRowDataV4
         };
     }
 
@@ -725,15 +771,21 @@
 
         applyFlagToRow(row, data.flagHref, data.flagCode || countryCode, Boolean(data.useFlagOverlay));
 
-        // Hide middle avatar logo on user's highlighted row; restore cleanly on other rows
         if (data.hideAvatar) {
-            if (row.avatarWrapEl) row.avatarWrapEl.style.setProperty('display', 'none', 'important');
-            if (row.avatarImgEl) row.avatarImgEl.style.setProperty('display', 'none', 'important');
-            if (row.avatarSvgEl) row.avatarSvgEl.style.setProperty('display', 'none', 'important');
+            row.avatarElsToHide.forEach(node => {
+                node.style.setProperty('display', 'none', 'important');
+            });
+            if (row.flagRefEl) {
+                row.flagRefEl.style.setProperty('margin-right', '8px', 'important');
+            }
         } else {
-            if (row.avatarWrapEl) row.avatarWrapEl.style.removeProperty('display');
+            row.avatarElsToHide.forEach(node => {
+                node.style.removeProperty('display');
+            });
+            if (row.flagRefEl) {
+                row.flagRefEl.style.removeProperty('margin-right');
+            }
             if (row.avatarImgEl) {
-                row.avatarImgEl.style.removeProperty('display');
                 const safeAvatarSrc = (data.avatarSrc && data.avatarSrc.length > 0)
                     ? data.avatarSrc
                     : DEFAULT_USER_AVATAR_SVG;
@@ -741,7 +793,6 @@
                     row.avatarImgEl.src = safeAvatarSrc;
                 }
             }
-            if (row.avatarSvgEl) row.avatarSvgEl.style.removeProperty('display');
         }
 
         if (isHighlighted) {
@@ -926,13 +977,13 @@
 
                 const parentRow = el.parentElement;
                 if (parentRow) {
-                    const existingFlagSvg = parentRow.querySelector('svg use[href*="flag-"], svg use[xlink\\:href*="flag-"]');
-                    if (existingFlagSvg) {
-                        const curHref = existingFlagSvg.getAttribute('href') || existingFlagSvg.getAttribute('xlink:href') || '';
+                    const cardUseFlag = [...parentRow.querySelectorAll('svg use')].find(u => /flag-/i.test(getUseHref(u)));
+                    if (cardUseFlag) {
+                        const curHref = getUseHref(cardUseFlag);
                         const targetHref = curHref.replace(/#flag-[a-z0-9_-]+/i, `#flag-${countryCode}`);
                         if (curHref !== targetHref) {
-                            existingFlagSvg.setAttribute('href', targetHref);
-                            existingFlagSvg.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', targetHref);
+                            cardUseFlag.setAttribute('href', targetHref);
+                            cardUseFlag.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', targetHref);
                         }
                     } else {
                         parentRow.querySelectorAll('svg').forEach(svg => {
