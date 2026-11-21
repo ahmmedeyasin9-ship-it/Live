@@ -10,7 +10,33 @@
     return isNaN(num) ? null : num;
   }
 
-  function extractAnyBalance() {
+  function isVisible(el) {
+    if (!el) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden" || parseFloat(style.opacity) === 0) {
+      return false;
+    }
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function extractActiveBalance() {
+    const candidates = Array.from(document.querySelectorAll("button, div, span, a, li"));
+
+    for (const el of candidates) {
+      if (!isVisible(el)) continue;
+      const txt = (el.innerText || "").trim();
+      if (!txt || txt.length > 80) continue;
+
+      if (/\b(live|demo)\b/i.test(txt) && /\$?\s*[0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?/.test(txt)) {
+        const match = txt.match(/\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)/);
+        if (match) {
+          const val = parseAmount(match[1]);
+          if (val !== null) return val;
+        }
+      }
+    }
+
     const walker = document.createTreeWalker(
       document.body || document.documentElement,
       NodeFilter.SHOW_TEXT,
@@ -18,9 +44,10 @@
     );
 
     let node;
-    let fallbackAmount = null;
-
     while ((node = walker.nextNode())) {
+      const parent = node.parentElement;
+      if (!parent || !isVisible(parent)) continue;
+
       const raw = node.textContent.trim();
       if (!raw) continue;
 
@@ -28,36 +55,23 @@
       if (match) {
         const val = parseAmount(match[1]);
         if (val !== null) {
-          const container = node.parentElement?.closest("button, div, a");
-          const ctx = (container?.innerText || "").toLowerCase();
-
-          if (ctx.includes("live") || ctx.includes("demo") || raw.includes("$")) {
+          const box = parent.closest("button, div, a");
+          const boxText = (box?.innerText || "").toLowerCase();
+          if (boxText.includes("live") || boxText.includes("demo") || raw.includes("$")) {
             return val;
-          }
-
-          if (fallbackAmount === null) {
-            fallbackAmount = val;
           }
         }
       }
     }
 
-    const textMatch = (document.body?.innerText || "").match(
-      /(?:live|demo|balance)[^\d$]{0,25}\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)/i
-    );
-    if (textMatch) {
-      const parsed = parseAmount(textMatch[1]);
-      if (parsed !== null) return parsed;
-    }
-
-    return fallbackAmount;
+    return null;
   }
 
   function syncTierUI() {
     const el = document.querySelector(PROFIT_SELECTOR);
     if (!el) return;
 
-    const balance = extractAnyBalance();
+    const balance = extractActiveBalance();
     const existingBadge = document.getElementById(BADGE_ID);
 
     if (balance === null || balance < 5000) {
