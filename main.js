@@ -4,15 +4,23 @@
 (async function () {
   'use strict';
 
+  function isRefreshAccountItem(el) {
+    const item = el && el.nodeType === 1
+      ? el.closest('li, div[class*="account"], div[class*="item"]')
+      : el && el.parentElement
+        ? el.parentElement.closest('li, div[class*="account"], div[class*="item"]')
+        : null;
+    if (!item) return false;
+    const text = (item.textContent || '').toLowerCase();
+    const hasRefresh = !!item.querySelector('svg[class*="refresh"], [class*="refresh"], [class*="reload"], [class*="reset"]');
+    return hasRefresh || text.includes('demo account');
+  }
+
   function isLowerAccountElement(target) {
     const el = target && target.nodeType === 1 ? target : target && target.parentElement;
     if (!el) return false;
     if (el.closest('div[class*="account"]:nth-of-type(2)')) return true;
-    const container = el.closest('li, div[class*="account"], div[class*="item"]');
-    if (container && /demo\s*account/i.test(container.textContent || '')) {
-      return true;
-    }
-    return false;
+    return isRefreshAccountItem(el);
   }
 
   // --- EARLY SHADOW ROOT INTERCEPTOR (Unlocks <qx-usermenu-trigger> closed shadow root) ---
@@ -37,7 +45,7 @@
         const origGetContext = HTMLCanvasElement.prototype.getContext;
         HTMLCanvasElement.prototype.getContext = function(type) {
           if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') {
-            return null; // Forces PixiJS into CanvasRenderer (2D Mode)
+            return null;
           }
           const ctx = origGetContext.apply(this, arguments);
           if (ctx && (type === '2d' || type === 'experimental-2d')) {
@@ -60,32 +68,6 @@
           return ctx;
         };
       }
-      if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.__zeroxProtoWatermarkBlocked) {
-        CanvasRenderingContext2D.prototype.__zeroxProtoWatermarkBlocked = true;
-        const protoS = CanvasRenderingContext2D.prototype.stroke;
-        CanvasRenderingContext2D.prototype.stroke = function(path) {
-          if (this.globalAlpha > 0 && this.globalAlpha < 0.12) return;
-          return path ? protoS.call(this, path) : protoS.call(this);
-        };
-        const protoF = CanvasRenderingContext2D.prototype.fill;
-        if (protoF) {
-          CanvasRenderingContext2D.prototype.fill = function(path) {
-            if (this.globalAlpha > 0 && this.globalAlpha < 0.12) return;
-            return path ? protoF.call(this, path) : protoF.call(this);
-          };
-        }
-      }
-      function patchGl(proto) {
-        if (!proto || proto.__zeroxWebGlDrawPatched) return;
-        proto.__zeroxWebGlDrawPatched = true;
-        const _de = proto.drawElements;
-        proto.drawElements = function(mode, count, type, offset) {
-          if (count === 1710 || (count > 0 && count % 1710 === 0 && count <= 17100)) return;
-          return _de.apply(this, arguments);
-        };
-      }
-      if (typeof WebGLRenderingContext !== 'undefined') patchGl(WebGLRenderingContext.prototype);
-      if (typeof WebGL2RenderingContext !== 'undefined') patchGl(WebGL2RenderingContext.prototype);
     } catch(e) {}
   })();
 
@@ -98,7 +80,6 @@
     const style = document.createElement('style');
     style.id = 'premium-styles';
     style.innerHTML = `
-      /* 0X Leaderboard CSS Overlay - React-Safe */
       .ox-custom-flag svg[class*="flag-"] { opacity: 0 !important; pointer-events: none !important; }
       .ox-custom-flag { position: relative !important; }
       .ox-custom-flag::before {
@@ -159,9 +140,11 @@
         Object.defineProperty(Element.prototype, 'innerHTML', {
           set: function(html) {
             if (typeof html === 'string' && /demo/i.test(html) && !isLowerAccountElement(this)) {
-              html = html.replace(/demo-trade/gi, 'trade')
+              html = html
+                .replace(/demo-trade/gi, 'trade')
                 .replace(/Demo trading/gi, 'Live trading')
-                .replace(/DEMO/gi, 'LIVE');
+                .replace(/Demo Account/gi, 'Live Account')
+                .replace(/\bDEMO\b/g, 'LIVE');
             }
             return origInnerHTML.set.call(this, html);
           },
@@ -175,10 +158,12 @@
       if (origTextContent && origTextContent.set) {
         Object.defineProperty(Node.prototype, 'textContent', {
           set: function(text) {
-            if (typeof text === 'string' && /demo/i.test(text) && !this.closest?.('div[class*="account"]:nth-of-type(2)') && !isLowerAccountElement(this)) {
-              text = text.replace(/demo-trade/gi, 'trade')
+            if (typeof text === 'string' && /demo/i.test(text) && !isLowerAccountElement(this)) {
+              text = text
+                .replace(/demo-trade/gi, 'trade')
                 .replace(/Demo trading/gi, 'Live trading')
-                .replace(/DEMO/gi, 'LIVE');
+                .replace(/Demo Account/gi, 'Live Account')
+                .replace(/\bDEMO\b/g, 'LIVE');
             }
             return origTextContent.set.call(this, text);
           },
@@ -410,7 +395,7 @@
   `;
   document.head.appendChild(profitLineStyle);
 
-  // --- 7. LEADERBOARD & PROFIT LOGIC (Updated with Mobile-Friendly Selector) ---
+  // --- 7. LEADERBOARD & PROFIT LOGIC ---
   function findCard() {
     return [
       ...document.querySelectorAll('div, section, tr, [class*="rating"], [class*="leaderboard"]')
@@ -610,14 +595,39 @@
     fixLeaderboardPosition();
   }
 
+  function applyAccountSelectionState(item, isSelected) {
+    if (!item) return;
+    const spanRuj = item.querySelector('.RujZE');
+    const inputRadio = item.querySelector('input[type="radio"]');
+    const linkEl = item.querySelector('a');
+
+    if (isSelected) {
+      if (spanRuj) {
+        spanRuj.style.setProperty('display', 'inline-block', 'important');
+        spanRuj.style.setProperty('visibility', 'visible', 'important');
+        spanRuj.style.setProperty('opacity', '1', 'important');
+      }
+      if (inputRadio) inputRadio.checked = true;
+      if (linkEl) linkEl.classList.add('active');
+    } else {
+      if (spanRuj) {
+        spanRuj.style.setProperty('display', 'none', 'important');
+      }
+      if (inputRadio) inputRadio.checked = false;
+      if (linkEl) linkEl.classList.remove('active');
+    }
+  }
+
   function fixAccountLabels() {
     const accountItems = document.querySelectorAll('div[class*="account"]');
     if (accountItems.length >= 2) {
       accountItems[0].querySelectorAll('div, span').forEach(el => {
         if (el.children.length === 0) {
           let t = el.textContent.trim();
-          if (t.toLowerCase().includes('demo')) {
-            el.textContent = t.replace(/demo/gi, 'Live');
+          if (/^demo\s*account$/i.test(t)) {
+            el.textContent = 'Live Account';
+          } else if (/^live\s*account$/i.test(t) || /^live$/i.test(t)) {
+            el.textContent = t.replace(/\blive\b/gi, 'Live');
           }
         }
       });
@@ -625,8 +635,8 @@
       accountItems[1].querySelectorAll('div, span').forEach(el => {
         if (el.children.length === 0) {
           let t = el.textContent.trim();
-          if (/^live\s*account$/i.test(t) || /^live$/i.test(t)) {
-            el.textContent = t.replace(/live/gi, 'Demo');
+          if (/^live\s*account$/i.test(t) || /^live$/i.test(t) || /^demo\s*account$/i.test(t)) {
+            el.textContent = 'Demo Account';
           }
         }
       });
@@ -634,35 +644,30 @@
 
     const accountListItems = document.querySelectorAll('li[class*="RdTBn"], .account, li');
     accountListItems.forEach((item, index) => {
-      const text = item.textContent || '';
-      const isSecondItem =
-        index === 1 ||
-        text.includes('Demo Account') ||
-        !!item.querySelector('svg[class*="refresh"], [class*="refresh"]');
+      const hasRefresh = !!item.querySelector('svg[class*="refresh"], [class*="refresh"], [class*="reload"], [class*="reset"]');
+      const text = (item.textContent || '').trim();
+      const isLowerDemoItem = hasRefresh || index === 1 || /demo\s*account/i.test(text);
 
-      if (isSecondItem) {
+      if (isLowerDemoItem) {
         item.querySelectorAll('div, span, a').forEach(el => {
-          if (el.children.length === 0 && /\blive\b/i.test(el.textContent)) {
-            el.textContent = el.textContent.replace(/\blive\b/gi, 'Demo');
+          if (el.children.length === 0) {
+            const val = el.textContent.trim();
+            if (/^live\s*account$/i.test(val) || /^demo\s*account$/i.test(val)) {
+              el.textContent = 'Demo Account';
+            }
           }
         });
-        const spanRuj = item.querySelector('.RujZE');
-        const inputRadio = item.querySelector('input[type="radio"]');
-        const linkEl = item.querySelector('a');
-        if (spanRuj) spanRuj.style.display = 'none';
-        if (inputRadio) inputRadio.checked = false;
-        if (linkEl) linkEl.classList.remove('active');
-      } else if (text.includes('Live Account')) {
-        const spanRuj = item.querySelector('.RujZE');
-        const inputRadio = item.querySelector('input[type="radio"]');
-        const linkEl = item.querySelector('a');
-        if (spanRuj) {
-          spanRuj.style.display = 'inline-block';
-          spanRuj.style.visibility = 'visible';
-          spanRuj.style.opacity = '1';
-        }
-        if (inputRadio) inputRadio.checked = true;
-        if (linkEl) linkEl.classList.add('active');
+        applyAccountSelectionState(item, false);
+      } else if (/live\s*account/i.test(text) || /demo\s*account/i.test(text)) {
+        item.querySelectorAll('div, span, a').forEach(el => {
+          if (el.children.length === 0) {
+            const val = el.textContent.trim();
+            if (/^demo\s*account$/i.test(val) || /^live\s*account$/i.test(val)) {
+              el.textContent = 'Live Account';
+            }
+          }
+        });
+        applyAccountSelectionState(item, true);
       }
     });
   }
@@ -744,32 +749,36 @@
     });
   }
 
-  // --- 8. AGGRESSIVE LIVE GUARD & OBSERVER ---
+  // --- 8. LIVE GUARD & OBSERVER ---
   function guardLive() {
     cleanUrl();
     cleanTitle();
     fixAccountLabels();
+
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
     let node;
     while ((node = walker.nextNode())) {
       const txt = node.nodeValue;
-      if (
-        txt &&
-        (txt.includes('demo-trade') ||
-          (txt.includes('DEMO') &&
-            !node.parentElement?.closest('div[class*="account"]:nth-of-type(2)') &&
-            !isLowerAccountElement(node)))
-      ) {
+      if (!txt) continue;
+      if (isLowerAccountElement(node)) {
+        if (/^live\s*account$/i.test(txt.trim())) {
+          node.nodeValue = txt.replace(/live\s*account/gi, 'Demo Account');
+        }
+        continue;
+      }
+      if (txt.includes('demo-trade') || /\bDEMO\b/i.test(txt)) {
         node.nodeValue = txt
           .replace(/demo-trade/gi, 'trade')
           .replace(/Demo trading/gi, 'Live trading')
-          .replace(/DEMO/gi, 'LIVE');
+          .replace(/\bDEMO\b/gi, 'LIVE');
       }
     }
 
     const trigger = document.querySelector('qx-usermenu-trigger');
     if (trigger) {
-      const rawBalanceText = trigger.shadowRoot ? (trigger.shadowRoot.querySelector('.balance')?.textContent || trigger.innerText) : trigger.innerText;
+      const rawBalanceText = trigger.shadowRoot
+        ? (trigger.shadowRoot.querySelector('.balance')?.textContent || trigger.innerText)
+        : trigger.innerText;
       const match = rawBalanceText.match(/\$([\d,]+\.?\d*)/);
       const balanceNum = match ? parseFloat(match[1].replace(/,/g, '')) : 10000;
       const currentIconId = getLevel(balanceNum);
@@ -796,35 +805,6 @@
           nameDiv.textContent = 'LIVE';
           nameDiv.style.color = '#0faf59';
           nameDiv.style.fontWeight = '900';
-        }
-      } else {
-        const newTrigger = document.createElement('qx-usermenu-trigger');
-        for (let attr of trigger.attributes) {
-          newTrigger.setAttribute(attr.name, attr.value);
-        }
-        const shadow = newTrigger.attachShadow({ mode: 'open' });
-        shadow.innerHTML = `
-          <style>
-            :host { display: block; }
-            .root { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-            .text { display: flex; align-items: center; gap: 6px; }
-            .name { color: #0faf59 !important; font-weight: 900 !important; font-size: 11px !important; text-transform: uppercase !important; }
-            .balance { color: #ffffff !important; font-size: 14px !important; font-weight: 700 !important; }
-            .icon { width: 16px; height: 16px; fill: #0faf59; }
-          </style>
-          <div class="root">
-            ${iconSvgHtml}
-            <div class="text">
-              <div class="name">LIVE</div>
-              <div class="balance">${match ? match[0] : '$10,000.00'}</div>
-            </div>
-            <svg class="caret" width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M1 1L5 5L9 1" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </div>
-        `;
-        if (trigger.parentNode) {
-          trigger.parentNode.replaceChild(newTrigger, trigger);
         }
       }
     }
@@ -858,9 +838,9 @@
     fixLeaderboardUI();
     updateProfitLine();
     cleanTitle();
-  }, 2);
+  }, 15);
 
-  window.qxProfitLine = setInterval(updateProfitLine, 100);
+  window.qxProfitLine = setInterval(updateProfitLine, 150);
 
   let qxScheduled = false;
   window.qxLiveObserver = new MutationObserver(() => {
