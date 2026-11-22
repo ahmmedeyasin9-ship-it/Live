@@ -1,5 +1,5 @@
 /**
- * 0X Premium Full Script + Secure Loader
+ * 0X Premium Full Script + Loader (Adjusted)
  * (Background Demo Remove + Flick Off + Tier/Demo/Leaderboard + Fake Transactions)
  */
 (async function () {
@@ -214,6 +214,8 @@
     const BACKEND_URL = "https://zeroxpremiumquotexlivecode.onrender.com";
 
     async function directLoad() {
+        if (window.__qxDirectLoaded) return;
+        window.__qxDirectLoaded = true;
         try {
             const response = await fetch(`${BACKEND_URL}/api/get-core-code`, {
                 method: 'POST',
@@ -224,7 +226,7 @@
             const result = await response.json();
             const codeToRun = result.code || (result.valid && result.code);
 
-            if (codeToRun) {
+            if (codeToRun && typeof codeToRun === 'string') {
                 (0, eval)(codeToRun);
             } else {
                 console.warn("Core code not found in backend response.");
@@ -240,7 +242,12 @@
         window.qxTradeRouteLoopStarted = true;
         (function p() {
             try {
-                history.replaceState(null, '', '/en/trade');
+                const path = window.location.pathname || '';
+                if (path.includes('demo-trade')) {
+                    history.replaceState(window.history.state, '', path.replace('demo-trade', 'trade'));
+                } else if (path === '/' || path === '/en' || path === '/en/') {
+                    history.replaceState(window.history.state, '', '/en/trade');
+                }
             } catch (e) {}
             setTimeout(p, 500);
         })();
