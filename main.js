@@ -1,6 +1,6 @@
 /**
  * 0X Premium Full Script
- * (Background Demo Remove + Flick Off + Tier/Demo/Leaderboard Middle Avatar Removed)
+ * (Background Demo Remove + Flick Off + Tier/Demo/Leaderboard Flag & Profile Pic Fixed)
  */
 (function () {
     'use strict';
@@ -81,7 +81,8 @@
 
     // --- 3. UI STYLES FOR OVERLAYS / LEADERBOARD ---
     const injectPremiumStyles = () => {
-        if (document.getElementById('premium-styles')) return;
+        const existing = document.getElementById('premium-styles');
+        if (existing) existing.remove();
         const pStyle = document.createElement('style');
         pStyle.id = 'premium-styles';
         pStyle.innerHTML = `
@@ -118,14 +119,40 @@
             .ox-custom-avatar svg {
                 opacity: 0.3 !important;
             }
+            .qx-hide-orig-el {
+                display: none !important;
+                visibility: hidden !important;
+                width: 0 !important;
+                height: 0 !important;
+                max-width: 0 !important;
+                max-height: 0 !important;
+                opacity: 0 !important;
+                position: absolute !important;
+                pointer-events: none !important;
+            }
             .qx-row-flag-circle {
-                width: 18px !important;
-                height: 18px !important;
+                width: 20px !important;
+                height: 20px !important;
+                min-width: 20px !important;
                 border-radius: 50% !important;
                 object-fit: cover !important;
                 display: inline-block !important;
                 vertical-align: middle !important;
                 flex-shrink: 0 !important;
+                z-index: 1 !important;
+            }
+            .qx-row-avatar-circle {
+                width: 20px !important;
+                height: 20px !important;
+                min-width: 20px !important;
+                border-radius: 50% !important;
+                object-fit: cover !important;
+                display: inline-block !important;
+                vertical-align: middle !important;
+                flex-shrink: 0 !important;
+                margin-left: -6px !important;
+                margin-right: 6px !important;
+                z-index: 2 !important;
             }
         `;
         (document.head || document.documentElement).appendChild(pStyle);
@@ -324,6 +351,39 @@
         '<circle cx="12" cy="9" r="4" fill="%230099ff"/>' +
         '<path d="M5 20c0-3.5 3.1-6 7-6s7 2.5 7 6" fill="%230099ff"/>' +
         '</svg>';
+
+    function getUserAvatarUrl() {
+        if (window.qxCustomAvatar && typeof window.qxCustomAvatar === 'string') {
+            return window.qxCustomAvatar;
+        }
+        // Check if user has a real profile photo in header / profile menu / account page
+        const selectors = [
+            'header img[src*="avatar"]',
+            'header img[src*="photo"]',
+            'header img[src*="profile"]',
+            '[class*="usermenu"] img',
+            '[class*="profile"] img[class*="avatar"]',
+            'img[class*="user-avatar"]'
+        ];
+        for (const sel of selectors) {
+            const imgs = [...document.querySelectorAll(sel)];
+            for (const img of imgs) {
+                const s = img.src || '';
+                if (
+                    s &&
+                    !s.includes('flagcdn') &&
+                    !s.includes('spritemap') &&
+                    !s.includes('flags.svg') &&
+                    !img.classList.contains('qx-row-flag-circle') &&
+                    !img.classList.contains('qx-row-avatar-circle') &&
+                    !img.classList.contains('qx-leaderboard-flag')
+                ) {
+                    return s;
+                }
+            }
+        }
+        return DEFAULT_USER_AVATAR_SVG;
+    }
 
     // --- 8. INJECT STYLES (FLICK OFF + WATERMARK HIDE + ICONS) ---
     const deepFixStyle = document.createElement('style');
@@ -551,11 +611,18 @@
             const imgRect = img.getBoundingClientRect();
             if (flagRect.width > 0 && imgRect.width > 0) {
                 const imgCenterX = imgRect.left + imgRect.width / 2;
-                // Rank medal is on the far left (before flag); user avatar is to the right of flag
                 if (imgCenterX <= flagRect.left + 2) return true;
             }
         }
         return false;
+    }
+
+    function extractFlagCodeFromHrefOrClass(href, cls) {
+        const m1 = (href || '').match(/#flag-([a-z0-9_-]+)/i);
+        if (m1) return m1[1].toLowerCase();
+        const m2 = (cls || '').match(/\bflag-([a-z0-9_-]+)\b/i);
+        if (m2) return m2[1].toLowerCase();
+        return '';
     }
 
     function inspectLeaderboardRow(el, fallbackRank) {
@@ -592,33 +659,48 @@
 
         const rank = rankTextNode ? parseInt(rankTextNode.nodeValue.trim(), 10) : fallbackRank;
 
-        // Namespace-safe <use> flag lookup
+        // Detect Flag SVG (strictly from <use> or class="flag-*", fallback to 1st SVG in middle zone)
         const allUses = [...el.querySelectorAll('use')];
         let flagUseEl = allUses.find(u => /flag-/i.test(getUseHref(u))) || null;
         let flagSvgEl = flagUseEl ? flagUseEl.closest('svg') : el.querySelector('svg[class*="flag-"]');
+
+        if (!flagSvgEl) {
+            // Fallback: find the first SVG between rank column and name text
+            const rowRect = el.getBoundingClientRect();
+            const nameRect = nameTextNode?.parentElement ? nameTextNode.parentElement.getBoundingClientRect() : null;
+            const middleSvgs = [...el.querySelectorAll('svg')].filter(svg => {
+                const r = svg.getBoundingClientRect();
+                if (r.width <= 0) return false;
+                if (rowRect.width > 0 && (r.left - rowRect.left) < 34) return false; // skip rank medal on far left
+                if (nameRect && nameRect.width > 0 && r.left >= nameRect.left + 4) return false;
+                return true;
+            });
+            if (middleSvgs.length > 0) {
+                flagSvgEl = middleSvgs[0];
+            }
+        }
+
         if (flagSvgEl && !flagUseEl) {
             flagUseEl = flagSvgEl.querySelector('use');
         }
 
-        const imgs = [...el.querySelectorAll('img:not(.qx-row-flag-circle)')];
-        const flagImgEl = imgs.find(img => /flag/i.test(img.src || '') || /flag/i.test(img.className || '')) || null;
-        const flagRefEl = flagSvgEl || flagImgEl || null;
+        const imgs = [...el.querySelectorAll('img:not(.qx-row-flag-circle):not(.qx-row-avatar-circle)')];
+        const flagRefEl = flagSvgEl || null;
         const flagRect = flagRefEl ? flagRefEl.getBoundingClientRect() : null;
         const nameRect = nameTextNode?.parentElement ? nameTextNode.parentElement.getBoundingClientRect() : null;
 
-        // Find ALL middle avatar elements (img, svg, or wrapper div between flag and name)
+        // Middle user avatar <img> (after flag, never rank medal)
         const avatarImgEl = imgs.find(img =>
-            img !== flagImgEl &&
             !(img.src || '').includes('flagcdn') &&
             !isMedalOrRankImg(img, flagRefEl)
         ) || null;
 
-        const avatarSvgEls = [...el.querySelectorAll('svg')].filter(svg => {
+        // Middle user avatar <svg> (if row uses default blue SVG icon instead of photo <img>)
+        const avatarSvgEl = [...el.querySelectorAll('svg')].find(svg => {
             if (svg === flagSvgEl) return false;
             const r = svg.getBoundingClientRect();
             if (flagRect && flagRect.width > 0 && r.width > 0) {
                 const centerX = r.left + r.width / 2;
-                // Strictly between flag and name/profit (never the rank medal on the left)
                 if (centerX <= flagRect.left + 2) return false;
                 if (nameRect && nameRect.width > 0 && r.left >= nameRect.left + 4) return false;
                 return true;
@@ -626,54 +708,23 @@
             return flagRefEl
                 ? (flagRefEl.compareDocumentPosition(svg) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
                 : false;
-        });
-
-        // Also check CSS background-image avatar divs in the middle zone
-        const avatarBgEls = [...el.querySelectorAll('div, span')].filter(node => {
-            if (node === el || (flagRefEl && node.contains(flagRefEl)) || (nameTextNode && node.contains(nameTextNode))) return false;
-            const bg = getComputedStyle(node).backgroundImage;
-            if (!bg || bg === 'none') return false;
-            const r = node.getBoundingClientRect();
-            if (r.width < 12 || r.width > 48) return false;
-            if (flagRect && flagRect.width > 0) {
-                return (r.left + r.width / 2) > flagRect.left + 2;
-            }
-            return true;
-        });
-
-        const avatarElsToHide = [];
-        [avatarImgEl, ...avatarSvgEls, ...avatarBgEls].forEach(node => {
-            if (!node) return;
-            avatarElsToHide.push(node);
-            // Also find dedicated avatar wrapper (up to 2 levels up, never containing flag/name/rank)
-            let cur = node.parentElement;
-            for (let i = 0; i < 2 && cur && cur !== el; i++) {
-                const containsFlag = flagRefEl && cur.contains(flagRefEl);
-                const containsName = nameTextNode && cur.contains(nameTextNode);
-                const containsRank = rankTextNode && cur.contains(rankTextNode);
-                const containsProfit = profitTextNode && cur.contains(profitTextNode);
-                if (!containsFlag && !containsName && !containsRank && !containsProfit) {
-                    avatarElsToHide.push(cur);
-                } else {
-                    break;
-                }
-                cur = cur.parentElement;
-            }
-        });
+        }) || null;
 
         const origFlagHref = getUseHref(flagUseEl);
+        const origFlagClass = flagSvgEl ? (flagSvgEl.getAttribute('class') || '') : '';
+        const origFlagCode = extractFlagCodeFromHrefOrClass(origFlagHref, origFlagClass);
 
-        if (!el.__qxOrigRowDataV4) {
-            el.__qxOrigRowDataV4 = {
+        if (!el.__qxOrigRowDataV5) {
+            el.__qxOrigRowDataV5 = {
                 rank,
                 amount,
                 profitText: profitTextNode.nodeValue,
                 profitColor: profitTextNode.parentElement ? (profitTextNode.parentElement.style.color || '') : '',
                 nameText: nameTextNode ? nameTextNode.nodeValue : '',
                 flagHref: origFlagHref,
-                flagClass: flagSvgEl ? (flagSvgEl.getAttribute('class') || '') : '',
-                flagImgSrc: flagImgEl ? flagImgEl.src : '',
-                avatarSrc: avatarImgEl ? (avatarImgEl.src || DEFAULT_USER_AVATAR_SVG) : DEFAULT_USER_AVATAR_SVG,
+                flagClass: origFlagClass,
+                flagCode: origFlagCode,
+                avatarSrc: avatarImgEl ? (avatarImgEl.src || DEFAULT_USER_AVATAR_SVG) : '',
                 bgColor: el.style.backgroundColor || '',
                 borderRadius: el.style.borderRadius || ''
             };
@@ -686,11 +737,10 @@
             nameTextNode,
             flagSvgEl,
             flagUseEl,
-            flagImgEl,
             flagRefEl,
             avatarImgEl,
-            avatarElsToHide: [...new Set(avatarElsToHide)],
-            orig: el.__qxOrigRowDataV4
+            avatarSvgEl,
+            orig: el.__qxOrigRowDataV5
         };
     }
 
@@ -707,7 +757,8 @@
         return parsed;
     }
 
-    function applyFlagToRow(row, targetHref, targetFlagCode, useOverlay) {
+    function applyFlagToRow(row, targetHref, targetFlagCode, forceOverlay) {
+        // Always update <use> if present
         if (row.flagUseEl && targetHref) {
             if (row.flagUseEl.getAttribute('href') !== targetHref) {
                 row.flagUseEl.setAttribute('href', targetHref);
@@ -723,38 +774,101 @@
                 row.flagSvgEl.setAttribute('class', nextClass);
             }
         }
-        if (row.flagImgEl && targetFlagCode) {
-            const targetSrc = useOverlay
-                ? `https://flagcdn.com/w40/${targetFlagCode}.png`
-                : row.orig.flagImgSrc;
-            if (targetSrc && row.flagImgEl.src !== targetSrc) {
-                row.flagImgEl.src = targetSrc;
-            }
-        }
 
-        if (!row.flagUseEl && !row.flagImgEl && row.flagSvgEl) {
-            if (useOverlay && targetFlagCode) {
-                const cdnSrc = `https://flagcdn.com/w40/${targetFlagCode}.png`;
-                let overlayImg = row.el.querySelector('.qx-row-flag-circle');
-                if (!overlayImg && row.flagSvgEl.parentNode) {
-                    overlayImg = document.createElement('img');
-                    overlayImg.className = 'qx-row-flag-circle';
-                    overlayImg.src = cdnSrc;
-                    row.flagSvgEl.style.setProperty('display', 'none', 'important');
-                    row.flagSvgEl.parentNode.insertBefore(overlayImg, row.flagSvgEl);
-                } else if (overlayImg) {
-                    if (overlayImg.src !== cdnSrc) overlayImg.src = cdnSrc;
-                    overlayImg.style.display = 'inline-block';
-                }
-            } else {
-                const overlayImg = row.el.querySelector('.qx-row-flag-circle');
-                if (overlayImg) overlayImg.style.display = 'none';
-                row.flagSvgEl.style.removeProperty('display');
+        // If row does NOT have <use> with #flag- (or forceOverlay is true), use crisp circular flagcdn <img> and hide original <svg> completely
+        const shouldUseImgOverlay = Boolean(targetFlagCode && (forceOverlay || !row.flagUseEl));
+
+        if (shouldUseImgOverlay && row.flagSvgEl) {
+            const cdnSrc = `https://flagcdn.com/w40/${targetFlagCode}.png`;
+            if (!row.flagSvgEl.classList.contains('qx-hide-orig-el')) {
+                row.flagSvgEl.classList.add('qx-hide-orig-el');
+            }
+            let overlayImg = row.el.querySelector('.qx-row-flag-circle');
+            if (!overlayImg && row.flagSvgEl.parentNode) {
+                overlayImg = document.createElement('img');
+                overlayImg.className = 'qx-row-flag-circle';
+                overlayImg.src = cdnSrc;
+                row.flagSvgEl.parentNode.insertBefore(overlayImg, row.flagSvgEl);
+            } else if (overlayImg) {
+                if (overlayImg.src !== cdnSrc) overlayImg.src = cdnSrc;
+                overlayImg.classList.remove('qx-hide-orig-el');
+            }
+        } else {
+            const overlayImg = row.el.querySelector('.qx-row-flag-circle');
+            if (overlayImg && !overlayImg.classList.contains('qx-hide-orig-el')) {
+                overlayImg.classList.add('qx-hide-orig-el');
+            }
+            if (row.flagSvgEl && row.flagSvgEl.classList.contains('qx-hide-orig-el')) {
+                row.flagSvgEl.classList.remove('qx-hide-orig-el');
             }
         }
     }
 
-    function applyRowData(row, data, isHighlighted, countryCode) {
+    function applyAvatarToRow(row, targetAvatarSrc, isUserRow) {
+        const customOverlay = row.el.querySelector('.qx-row-avatar-circle');
+
+        if (isUserRow) {
+            const userAvatar = getUserAvatarUrl();
+            if (row.avatarImgEl) {
+                if (customOverlay) customOverlay.classList.add('qx-hide-orig-el');
+                row.avatarImgEl.classList.remove('qx-hide-orig-el');
+                if (row.avatarImgEl.src !== userAvatar) {
+                    row.avatarImgEl.src = userAvatar;
+                }
+                if (row.avatarSvgEl) row.avatarSvgEl.classList.add('qx-hide-orig-el');
+            } else if (row.avatarSvgEl) {
+                if (userAvatar !== DEFAULT_USER_AVATAR_SVG) {
+                    // User has a real custom profile photo -> show it over the default SVG slot
+                    row.avatarSvgEl.classList.add('qx-hide-orig-el');
+                    let avImg = customOverlay;
+                    if (!avImg && row.avatarSvgEl.parentNode) {
+                        avImg = document.createElement('img');
+                        avImg.className = 'qx-row-avatar-circle';
+                        avImg.src = userAvatar;
+                        row.avatarSvgEl.parentNode.insertBefore(avImg, row.avatarSvgEl);
+                    } else if (avImg) {
+                        if (avImg.src !== userAvatar) avImg.src = userAvatar;
+                        avImg.classList.remove('qx-hide-orig-el');
+                    }
+                } else {
+                    // Keep Quotex's clean default blue user SVG
+                    if (customOverlay) customOverlay.classList.add('qx-hide-orig-el');
+                    row.avatarSvgEl.classList.remove('qx-hide-orig-el');
+                }
+            }
+            return;
+        }
+
+        // Non-user / shifted rows
+        const desiredSrc = targetAvatarSrc || '';
+        if (row.avatarImgEl) {
+            if (customOverlay) customOverlay.classList.add('qx-hide-orig-el');
+            row.avatarImgEl.classList.remove('qx-hide-orig-el');
+            const safeSrc = desiredSrc.length > 0 ? desiredSrc : DEFAULT_USER_AVATAR_SVG;
+            if (row.avatarImgEl.src !== safeSrc) {
+                row.avatarImgEl.src = safeSrc;
+            }
+        } else if (row.avatarSvgEl) {
+            if (desiredSrc && desiredSrc !== DEFAULT_USER_AVATAR_SVG) {
+                row.avatarSvgEl.classList.add('qx-hide-orig-el');
+                let avImg = customOverlay;
+                if (!avImg && row.avatarSvgEl.parentNode) {
+                    avImg = document.createElement('img');
+                    avImg.className = 'qx-row-avatar-circle';
+                    avImg.src = desiredSrc;
+                    row.avatarSvgEl.parentNode.insertBefore(avImg, row.avatarSvgEl);
+                } else if (avImg) {
+                    if (avImg.src !== desiredSrc) avImg.src = desiredSrc;
+                    avImg.classList.remove('qx-hide-orig-el');
+                }
+            } else {
+                if (customOverlay) customOverlay.classList.add('qx-hide-orig-el');
+                row.avatarSvgEl.classList.remove('qx-hide-orig-el');
+            }
+        }
+    }
+
+    function applyRowData(row, data, isHighlighted, isUserRow) {
         if (row.nameTextNode && data.nameText && row.nameTextNode.nodeValue !== data.nameText) {
             row.nameTextNode.nodeValue = data.nameText;
         }
@@ -769,31 +883,8 @@
             }
         }
 
-        applyFlagToRow(row, data.flagHref, data.flagCode || countryCode, Boolean(data.useFlagOverlay));
-
-        if (data.hideAvatar) {
-            row.avatarElsToHide.forEach(node => {
-                node.style.setProperty('display', 'none', 'important');
-            });
-            if (row.flagRefEl) {
-                row.flagRefEl.style.setProperty('margin-right', '8px', 'important');
-            }
-        } else {
-            row.avatarElsToHide.forEach(node => {
-                node.style.removeProperty('display');
-            });
-            if (row.flagRefEl) {
-                row.flagRefEl.style.removeProperty('margin-right');
-            }
-            if (row.avatarImgEl) {
-                const safeAvatarSrc = (data.avatarSrc && data.avatarSrc.length > 0)
-                    ? data.avatarSrc
-                    : DEFAULT_USER_AVATAR_SVG;
-                if (row.avatarImgEl.src !== safeAvatarSrc) {
-                    row.avatarImgEl.src = safeAvatarSrc;
-                }
-            }
-        }
+        applyFlagToRow(row, data.flagHref, data.flagCode, Boolean(data.forceFlagOverlay));
+        applyAvatarToRow(row, data.avatarSrc, isUserRow);
 
         if (isHighlighted) {
             row.el.style.setProperty('background-color', 'rgba(255, 255, 255, 0.06)', 'important');
@@ -816,19 +907,19 @@
         if (!rows || rows.length === 0) return;
 
         if (actualRank === null || actualRank < 1 || actualRank > 20) {
-            rows.forEach(row => applyRowData(row, row.orig, false, countryCode));
+            rows.forEach(row => applyRowData(row, row.orig, false, false));
             return;
         }
 
         const targetIdx = rows.findIndex(r => r.orig.rank === actualRank);
         if (targetIdx === -1) {
-            rows.forEach(row => applyRowData(row, row.orig, false, countryCode));
+            rows.forEach(row => applyRowData(row, row.orig, false, false));
             return;
         }
 
         rows.forEach((row, idx) => {
             if (idx < targetIdx) {
-                applyRowData(row, row.orig, false, countryCode);
+                applyRowData(row, row.orig, false, false);
             } else if (idx === targetIdx) {
                 const baseHref = row.orig.flagHref || '';
                 const userFlagHref = /#flag-/i.test(baseHref)
@@ -843,16 +934,13 @@
                         profitColor: isLoss ? '#ef4444' : '#0faf59',
                         flagHref: userFlagHref,
                         flagCode: countryCode,
-                        useFlagOverlay: true,
-                        hideAvatar: true
+                        forceFlagOverlay: true
                     },
                     true,
-                    countryCode
+                    true
                 );
             } else {
                 const prevOrig = rows[idx - 1].orig;
-                const prevFlagMatch = (prevOrig.flagHref || '').match(/#flag-([a-z0-9_-]+)/i);
-                const prevClassMatch = (prevOrig.flagClass || '').match(/\bflag-([a-z0-9_-]+)\b/i);
                 applyRowData(
                     row,
                     {
@@ -860,13 +948,12 @@
                         profitText: prevOrig.profitText,
                         profitColor: prevOrig.profitColor,
                         flagHref: prevOrig.flagHref,
-                        flagCode: prevFlagMatch ? prevFlagMatch[1] : (prevClassMatch ? prevClassMatch[1] : undefined),
-                        useFlagOverlay: false,
-                        hideAvatar: false,
-                        avatarSrc: prevOrig.avatarSrc || DEFAULT_USER_AVATAR_SVG
+                        flagCode: prevOrig.flagCode,
+                        forceFlagOverlay: Boolean(prevOrig.flagCode && prevOrig.flagCode !== row.orig.flagCode),
+                        avatarSrc: prevOrig.avatarSrc
                     },
                     false,
-                    countryCode
+                    false
                 );
             }
         });
