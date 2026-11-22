@@ -1,6 +1,6 @@
 /**
- * 0X Premium Full Script (Zero-Flicker + Fixed Leaderboard Edition)
- * (Background Demo Remove + Zero Flick + Tier/Demo/Leaderboard + Control Panel + Fake Transactions)
+ * 0X Premium Full Script (Zero-Flicker + Full Control Edition)
+ * (Background Demo Remove + Zero Flick + Live/Demo Balance Isolation + Top Card Flag + Top 5 Logo Fix)
  */
 (function () {
     'use strict';
@@ -40,8 +40,11 @@
         country: 'Bangladesh',
         startingCapital: null,
         lastBalance: null,
+        spoofLiveBalance: '',
+        liveBalanceAnchor: null,
         spoofDemoBalance: '',
         customAvatar: '',
+        lastAvatar: '',
         gearPos: { top: 8, right: 8 },
         transactions: [
             { id: '48029950', type: 'Deposit', amount: 1000, method: 'Binance Pay', dateTime: formatNowDateTime() },
@@ -54,7 +57,8 @@
     if (!Array.isArray(panelConfig.transactions)) panelConfig.transactions = defaultConfig.transactions;
     if (window.qxCustomName === undefined) window.qxCustomName = panelConfig.customName;
     if (window.qxCustomCountry === undefined) window.qxCustomCountry = panelConfig.country;
-    if (panelConfig.customAvatar && !window.qxCustomAvatar) window.qxCustomAvatar = panelConfig.customAvatar;
+    if (panelConfig.customAvatar) window.qxCustomAvatar = panelConfig.customAvatar;
+    if (panelConfig.lastAvatar) window.__qxLastValidAvatar = panelConfig.lastAvatar;
     if (panelConfig.startingCapital !== null && panelConfig.startingCapital !== undefined) {
         window.qxCustomStartingCapital = String(panelConfig.startingCapital);
     }
@@ -221,6 +225,11 @@
                 object-fit: cover !important; display: inline-block !important; vertical-align: middle !important;
                 flex-shrink: 0 !important; z-index: 1 !important;
             }
+            .qx-card-flag-circle {
+                width: 20px !important; height: 20px !important; min-width: 20px !important; border-radius: 50% !important;
+                object-fit: cover !important; display: inline-block !important; vertical-align: middle !important;
+                flex-shrink: 0 !important; margin-right: 8px !important;
+            }
             .qx-row-avatar-circle {
                 width: 20px !important; height: 20px !important; min-width: 20px !important; border-radius: 50% !important;
                 object-fit: cover !important; display: inline-block !important; vertical-align: middle !important;
@@ -229,6 +238,15 @@
             .qx-custom-user-row {
                 background-color: rgba(255, 255, 255, 0.06) !important;
                 border-radius: 6px !important;
+            }
+            .qx-plain-rank-badge {
+                background: transparent !important;
+                background-color: transparent !important;
+                background-image: none !important;
+                border: none !important;
+                box-shadow: none !important;
+                color: #8c95a6 !important;
+                font-weight: 500 !important;
             }
 
             /* --- CONTROL PANEL & TXNS MODAL STYLES --- */
@@ -482,9 +500,12 @@
     clearInterval(window.qxBalanceInterval);
     clearInterval(window.qxProfitLine);
     window.qxProfitLine = null;
-    document.querySelectorAll('.qx-custom-user-row').forEach(el => el.remove());
+    document.querySelectorAll('.qx-custom-user-row, .qx-card-flag-circle').forEach(el => el.remove());
     document.querySelectorAll('[data-qx-orig-rank]').forEach(el => {
         el.classList.remove('qx-hide-orig-el');
+    });
+    document.querySelectorAll('.qx-plain-rank-badge').forEach(el => {
+        el.classList.remove('qx-plain-rank-badge');
     });
     document.getElementById('qx-combined-style')?.remove();
     document.getElementById('qx-profit-line-style')?.remove();
@@ -547,7 +568,7 @@
         cleanTitle();
     }, 100);
 
-    // --- 7. CORE HELPER FUNCTIONS ---
+    // --- 7. CORE BALANCE & AVATAR HELPERS (LIVE vs DEMO STRICTLY ISOLATED) ---
     function parseDollarAmount(text) {
         if (!text || !text.includes('$')) return null;
         const match = text.match(/\$\s*([\d,]+(?:\.\d+)?)/);
@@ -556,39 +577,72 @@
         return (Number.isFinite(n) && n >= 0 && n < 100000000) ? n : null;
     }
 
-    function cacheValidBalance(n) {
-        if (n !== null && Number.isFinite(n)) {
-            window.__qxLastValidBalance = n;
-            if (panelConfig.lastBalance !== n) {
-                panelConfig.lastBalance = n;
-                saveConfig(panelConfig);
-            }
-        }
-        return n;
+    function formatDollar(n) {
+        return '$' + Number(n || 0).toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
     }
 
-    function getBalance() {
+    function getRawLiveBalance() {
         const trigger = document.querySelector('qx-usermenu-trigger');
         if (trigger?.shadowRoot) {
             const balEl = trigger.shadowRoot.querySelector('.balance');
-            const n = parseDollarAmount(balEl?.textContent || '');
-            if (n !== null) return cacheValidBalance(n);
+            if (balEl) {
+                const txt = (balEl.textContent || '').trim();
+                const lastSpoof = window.__qxLastWrittenLiveStr;
+                if (txt && txt !== lastSpoof) {
+                    const n = parseDollarAmount(txt);
+                    if (n !== null) {
+                        window.__qxRawLiveBalance = n;
+                    }
+                }
+            }
         }
 
-        const all = document.querySelectorAll('.zt1hG, .v2KPX, header .balance, header [class*="balance"]');
-        for (const el of all) {
-            if (el.closest('[data-qx-account="demo"], #qx-control-overlay, #qx-tx-overlay, .qx-profit-card, .qx-custom-user-row')) continue;
-            const text = (el.textContent || '').trim();
-            if (!text.includes('$') || text.includes('daily limit')) continue;
-            const n = parseDollarAmount(text);
-            if (n !== null) return cacheValidBalance(n);
+        if (typeof window.__qxRawLiveBalance !== 'number') {
+            const all = document.querySelectorAll('.zt1hG, .v2KPX, header .balance, header [class*="balance"]');
+            for (const el of all) {
+                if (el.closest('[data-qx-account="demo"], #qx-control-overlay, #qx-tx-overlay, .qx-profit-card, .qx-custom-user-row')) continue;
+                const text = (el.textContent || '').trim();
+                if (!text.includes('$') || text.includes('daily limit') || text === window.__qxLastWrittenLiveStr) continue;
+                const n = parseDollarAmount(text);
+                if (n !== null) {
+                    window.__qxRawLiveBalance = n;
+                    break;
+                }
+            }
         }
 
-        // Mobile Leader Board opens fullscreen and can unmount header; use last cached valid balance
+        if (typeof window.__qxRawLiveBalance === 'number' && Number.isFinite(window.__qxRawLiveBalance)) {
+            window.__qxLastValidBalance = window.__qxRawLiveBalance;
+            if (panelConfig.lastBalance !== window.__qxRawLiveBalance) {
+                panelConfig.lastBalance = window.__qxRawLiveBalance;
+                saveConfig(panelConfig);
+            }
+            return window.__qxRawLiveBalance;
+        }
+
         if (typeof window.__qxLastValidBalance === 'number' && Number.isFinite(window.__qxLastValidBalance)) {
             return window.__qxLastValidBalance;
         }
         return null;
+    }
+
+    function getBalance() {
+        const rawLive = getRawLiveBalance();
+        const spoofStr = String(panelConfig.spoofLiveBalance ?? '').trim();
+        if (spoofStr !== '') {
+            const spoofNum = parseFloat(spoofStr);
+            if (Number.isFinite(spoofNum) && spoofNum >= 0) {
+                if (rawLive !== null && typeof panelConfig.liveBalanceAnchor === 'number' && Number.isFinite(panelConfig.liveBalanceAnchor)) {
+                    const delta = rawLive - panelConfig.liveBalanceAnchor;
+                    return Math.max(0, spoofNum + delta);
+                }
+                return spoofNum;
+            }
+        }
+        return rawLive;
     }
 
     function removeBonusBanner() {
@@ -624,7 +678,15 @@
         'Saudi Arabia': 'sa',
         'Pakistan': 'pk',
         'Brazil': 'br',
-        'Turkey': 'tr'
+        'Turkey': 'tr',
+        'Indonesia': 'id',
+        'Malaysia': 'my',
+        'Vietnam': 'vn',
+        'Philippines': 'ph',
+        'Nigeria': 'ng',
+        'Russia': 'ru',
+        'Germany': 'de',
+        'Egypt': 'eg'
     };
 
     const DEFAULT_USER_AVATAR_SVG =
@@ -636,13 +698,16 @@
         '</svg>';
 
     function getUserAvatarUrl() {
-        if (window.qxCustomAvatar && typeof window.qxCustomAvatar === 'string') {
-            return window.qxCustomAvatar;
+        const customUrl = (window.qxCustomAvatar || panelConfig.customAvatar || '').trim();
+        if (customUrl) {
+            return customUrl;
         }
+
         const selectors = [
             'header img[src*="avatar"]',
             'header img[src*="photo"]',
             'header img[src*="profile"]',
+            'header img[src*="user"]',
             '[class*="usermenu"] img',
             '[class*="profile"] img[class*="avatar"]',
             'img[class*="user-avatar"]'
@@ -657,13 +722,38 @@
                     !s.includes('spritemap') &&
                     !s.includes('flags.svg') &&
                     !img.classList.contains('qx-row-flag-circle') &&
+                    !img.classList.contains('qx-card-flag-circle') &&
                     !img.classList.contains('qx-row-avatar-circle') &&
                     !img.classList.contains('qx-leaderboard-flag')
                 ) {
+                    window.__qxLastValidAvatar = s;
+                    if (panelConfig.lastAvatar !== s) {
+                        panelConfig.lastAvatar = s;
+                        saveConfig(panelConfig);
+                    }
                     return s;
                 }
             }
         }
+
+        // Also check inside qx-usermenu-trigger shadowRoot if avatar img exists there
+        const trigger = document.querySelector('qx-usermenu-trigger');
+        if (trigger?.shadowRoot) {
+            const sImg = [...trigger.shadowRoot.querySelectorAll('img')].find(img => {
+                const s = img.src || '';
+                return s && !s.includes('flagcdn') && !s.includes('spritemap') && !s.includes('flags.svg');
+            });
+            if (sImg?.src) {
+                window.__qxLastValidAvatar = sImg.src;
+                if (panelConfig.lastAvatar !== sImg.src) {
+                    panelConfig.lastAvatar = sImg.src;
+                    saveConfig(panelConfig);
+                }
+                return sImg.src;
+            }
+        }
+
+        if (window.__qxLastValidAvatar) return window.__qxLastValidAvatar;
         return DEFAULT_USER_AVATAR_SVG;
     }
 
@@ -719,7 +809,7 @@
     `;
     (document.head || document.documentElement).appendChild(profitLineStyle);
 
-    // --- 9. LEADERBOARD & PROFIT LOGIC (TOP CARD + SAFE SINGLE-ROW INSERTION) ---
+    // --- 9. LEADERBOARD & PROFIT LOGIC (TOP CARD FLAG + SAFE TOP-5 LOGO & MEDAL) ---
     function findLeaderboardCard() {
         const candidates = [...document.querySelectorAll('div, section')].filter(el => {
             if (el.closest('#qx-control-overlay, #qx-tx-overlay, .qx-custom-user-row')) return false;
@@ -864,6 +954,11 @@
         );
     }
 
+    function isFollowingNode(refNode, targetNode) {
+        if (!refNode || !targetNode) return false;
+        return (refNode.compareDocumentPosition(targetNode) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    }
+
     function inspectRealRow(el, fallbackRank) {
         const textNodes = [];
         const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
@@ -896,7 +991,6 @@
         const amount = parseDollarAmount(profitTextNode.nodeValue);
         if (amount === null || amount <= 0) return null;
 
-        // Preserve original rank before any shift
         let origRank;
         if (el.dataset.qxOrigRank) {
             origRank = parseInt(el.dataset.qxOrigRank, 10);
@@ -911,7 +1005,7 @@
             el,
             origRank,
             amount,
-            hasPlainRankNode: Boolean(rankTextNode),
+            hasPlainRankNode: Boolean(rankTextNode && origRank >= 4),
             rankTextNode
         };
     }
@@ -932,33 +1026,59 @@
     function restoreAllRealRows(rows) {
         rows.forEach(r => {
             r.el.classList.remove('qx-hide-orig-el');
-            if (r.rankTextNode && r.el.dataset.qxOrigRank) {
-                const orig = r.el.dataset.qxOrigRank;
-                if (r.rankTextNode.nodeValue.trim() !== orig) {
-                    r.rankTextNode.nodeValue = orig;
+            if (r.rankTextNode) {
+                if (r.el.dataset.qxOrigRank && r.rankTextNode.nodeValue.trim() !== r.el.dataset.qxOrigRank) {
+                    r.rankTextNode.nodeValue = r.el.dataset.qxOrigRank;
+                }
+                if (r.rankTextNode.parentElement) {
+                    r.rankTextNode.parentElement.classList.remove('qx-plain-rank-badge');
                 }
             }
         });
     }
 
+    function findRowFlagElement(rowEl, nameNode) {
+        const flagUse = [...rowEl.querySelectorAll('use')].find(u => /flag-/i.test(getUseHref(u)));
+        let flagSvg = flagUse ? flagUse.closest('svg') : rowEl.querySelector('svg[class*="flag-"]');
+        if (!flagSvg) {
+            const rowRect = rowEl.getBoundingClientRect();
+            const nameRect = nameNode?.parentElement ? nameNode.parentElement.getBoundingClientRect() : null;
+            const midSvgs = [...rowEl.querySelectorAll('svg')].filter(svg => {
+                const r = svg.getBoundingClientRect();
+                if (r.width <= 0) return false;
+                if (rowRect.width > 0 && (r.left - rowRect.left) < 34) return false;
+                if (nameRect && nameRect.width > 0 && r.left >= nameRect.left + 4) return false;
+                return true;
+            });
+            if (midSvgs.length > 0) flagSvg = midSvgs[0];
+        }
+        return flagSvg || rowEl.querySelector('.qx-row-flag-circle') || null;
+    }
+
     function buildOrUpdateCustomUserRow(templateRow, container, beforeEl, rankNum, customName, formattedProfit, isLoss, countryCode) {
         let customRow = container.querySelector('.qx-custom-user-row');
+        const desiredTemplateKey = rankNum <= 3 ? `medal-${rankNum}` : 'plain';
+
+        if (customRow && customRow.dataset.qxTemplateKey !== desiredTemplateKey) {
+            customRow.remove();
+            customRow = null;
+        }
+
         if (!customRow) {
             customRow = templateRow.el.cloneNode(true);
             customRow.classList.add('qx-custom-user-row');
             customRow.classList.remove('qx-hide-orig-el');
             customRow.dataset.qxCustomRow = '1';
+            customRow.dataset.qxTemplateKey = desiredTemplateKey;
             delete customRow.dataset.qxOrigRank;
         }
 
-        // Keep exact DOM position right before target real row
         if (beforeEl && customRow.nextElementSibling !== beforeEl) {
             container.insertBefore(customRow, beforeEl);
         } else if (!beforeEl && customRow.parentElement !== container) {
             container.appendChild(customRow);
         }
 
-        // Find rank, name, profit text nodes inside cloned row
         const textNodes = [];
         const tw = document.createTreeWalker(customRow, NodeFilter.SHOW_TEXT, null, false);
         let tn;
@@ -992,7 +1112,7 @@
             }
         }
 
-        // Update flag cleanly to circular flag image
+        // 1) Find original flag SVG & replace with clean circular flag IMG
         const flagUse = [...customRow.querySelectorAll('use')].find(u => /flag-/i.test(getUseHref(u)));
         let flagSvg = flagUse ? flagUse.closest('svg') : customRow.querySelector('svg[class*="flag-"]');
         if (!flagSvg) {
@@ -1009,44 +1129,56 @@
         }
 
         const cdnFlag = `https://flagcdn.com/w40/${countryCode}.png`;
+        let flagRef = customRow.querySelector('.qx-row-flag-circle');
         if (flagSvg) {
             flagSvg.classList.add('qx-hide-orig-el');
-            let flagImg = customRow.querySelector('.qx-row-flag-circle');
-            if (!flagImg && flagSvg.parentNode) {
-                flagImg = document.createElement('img');
-                flagImg.className = 'qx-row-flag-circle';
-                flagImg.src = cdnFlag;
-                flagSvg.parentNode.insertBefore(flagImg, flagSvg);
-            } else if (flagImg && flagImg.src !== cdnFlag) {
-                flagImg.src = cdnFlag;
+            if (!flagRef && flagSvg.parentNode) {
+                flagRef = document.createElement('img');
+                flagRef.className = 'qx-row-flag-circle';
+                flagRef.src = cdnFlag;
+                flagSvg.parentNode.insertBefore(flagRef, flagSvg);
+            } else if (flagRef && flagRef.src !== cdnFlag) {
+                flagRef.src = cdnFlag;
             }
         }
+        if (!flagRef) flagRef = flagSvg;
 
-        // Update avatar cleanly
+        // 2) Update ONLY the avatar AFTER the flag (never touch the rank/medal icon BEFORE the flag!)
         const userAvatar = getUserAvatarUrl();
-        const origAvImg = [...customRow.querySelectorAll('img:not(.qx-row-flag-circle):not(.qx-row-avatar-circle)')].find(img => {
-            const meta = ((img.src || '') + ' ' + (img.className || '')).toLowerCase();
-            return !meta.includes('flagcdn') && !/medal|trophy|crown|place|rank|award|badge/.test(meta);
+        const anchorRef = flagSvg || flagRef;
+
+        const postFlagImgs = [...customRow.querySelectorAll('img:not(.qx-row-flag-circle):not(.qx-row-avatar-circle)')].filter(img => {
+            return anchorRef ? isFollowingNode(anchorRef, img) : false;
         });
-        if (origAvImg) {
-            if (origAvImg.src !== userAvatar) origAvImg.src = userAvatar;
-        } else if (userAvatar !== DEFAULT_USER_AVATAR_SVG) {
-            const flagRef = customRow.querySelector('.qx-row-flag-circle') || flagSvg;
-            const avSvg = [...customRow.querySelectorAll('svg')].find(svg => {
-                if (svg === flagSvg) return false;
-                return flagRef ? (flagRef.compareDocumentPosition(svg) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0 : false;
-            });
-            if (avSvg && avSvg.parentNode) {
+
+        const postFlagSvgs = [...customRow.querySelectorAll('svg')].filter(svg => {
+            if (svg === flagSvg) return false;
+            if (!anchorRef || !isFollowingNode(anchorRef, svg)) return false;
+            if (nameNode && isFollowingNode(nameNode, svg)) return false;
+            return true;
+        });
+
+        if (postFlagImgs.length > 0) {
+            const avImg = postFlagImgs[0];
+            if (avImg.src !== userAvatar) avImg.src = userAvatar;
+            const extraCustomAv = customRow.querySelector('.qx-row-avatar-circle');
+            if (extraCustomAv) extraCustomAv.remove();
+        } else if (postFlagSvgs.length > 0) {
+            const avSvg = postFlagSvgs[0];
+            let customAv = customRow.querySelector('.qx-row-avatar-circle');
+            if (userAvatar !== DEFAULT_USER_AVATAR_SVG) {
                 avSvg.classList.add('qx-hide-orig-el');
-                let avImg = customRow.querySelector('.qx-row-avatar-circle');
-                if (!avImg) {
-                    avImg = document.createElement('img');
-                    avImg.className = 'qx-row-avatar-circle';
-                    avImg.src = userAvatar;
-                    avSvg.parentNode.insertBefore(avImg, avSvg);
-                } else if (avImg.src !== userAvatar) {
-                    avImg.src = userAvatar;
+                if (!customAv && avSvg.parentNode) {
+                    customAv = document.createElement('img');
+                    customAv.className = 'qx-row-avatar-circle';
+                    customAv.src = userAvatar;
+                    avSvg.parentNode.insertBefore(customAv, avSvg);
+                } else if (customAv && customAv.src !== userAvatar) {
+                    customAv.src = userAvatar;
                 }
+            } else {
+                if (customAv) customAv.remove();
+                avSvg.classList.remove('qx-hide-orig-el');
             }
         }
     }
@@ -1068,7 +1200,6 @@
             return;
         }
 
-        // Find insertion point (first real row whose original rank >= actualRank)
         let targetRow = rows.find(r => r.origRank >= actualRank) || null;
         if (!targetRow) {
             container.querySelectorAll('.qx-custom-user-row').forEach(el => el.remove());
@@ -1076,8 +1207,13 @@
             return;
         }
 
-        // Prefer a plain-rank row (>= 4) as clone template so we don't copy medal icons
-        const templateRow = rows.find(r => r.hasPlainRankNode) || targetRow;
+        // For ranks 1-3 clone exact medal row so rank 1/2/3 keeps its proper medal; for 4+ clone a plain row
+        let templateRow;
+        if (actualRank <= 3) {
+            templateRow = rows.find(r => r.origRank === actualRank) || rows.find(r => r.hasPlainRankNode) || targetRow;
+        } else {
+            templateRow = rows.find(r => r.hasPlainRankNode) || targetRow;
+        }
 
         buildOrUpdateCustomUserRow(
             templateRow,
@@ -1090,7 +1226,6 @@
             countryCode
         );
 
-        // Only adjust the rank numbers of real rows cleanly (never touch their names/profits/flags!)
         rows.forEach(r => {
             const shiftedRank = r.origRank >= actualRank ? r.origRank + 1 : r.origRank;
             if (shiftedRank > 20) {
@@ -1101,6 +1236,14 @@
                     const targetStr = String(shiftedRank);
                     if (r.rankTextNode.nodeValue.trim() !== targetStr) {
                         r.rankTextNode.nodeValue = targetStr;
+                    }
+                    // If a top-3 medal row got shifted to >= 4, strip medal styling so rank 4+ stays plain
+                    if (r.rankTextNode.parentElement) {
+                        if (r.origRank <= 3 && shiftedRank >= 4) {
+                            r.rankTextNode.parentElement.classList.add('qx-plain-rank-badge');
+                        } else {
+                            r.rankTextNode.parentElement.classList.remove('qx-plain-rank-badge');
+                        }
                     }
                 }
             }
@@ -1153,6 +1296,47 @@
         syncLeaderboardListRows(rows, actualRank, customName, formattedProfit, isLoss, countryCode);
     }
 
+    function updateTopCardFlag(card, nameEl, countryCode) {
+        const cdnFlag = `https://flagcdn.com/w40/${countryCode}.png`;
+
+        // Search the ENTIRE card (not just nameEl.parentElement) for any existing SVG flag
+        const allSvgs = [...card.querySelectorAll('svg')];
+        let cardFlagSvg = allSvgs.find(svg => {
+            const cls = svg.getAttribute('class') || '';
+            if (/flag-/i.test(cls)) return true;
+            const u = svg.querySelector('use');
+            return u && /flag-/i.test(getUseHref(u));
+        });
+
+        if (!cardFlagSvg && allSvgs.length > 0 && nameEl) {
+            // Fallback: first SVG before the name element inside the card
+            cardFlagSvg = allSvgs.find(svg => !isFollowingNode(nameEl, svg));
+        }
+
+        let cardFlagImg = card.querySelector('.qx-card-flag-circle');
+        if (cardFlagSvg) {
+            cardFlagSvg.classList.add('qx-hide-orig-el');
+            if (!cardFlagImg && cardFlagSvg.parentNode) {
+                cardFlagImg = document.createElement('img');
+                cardFlagImg.className = 'qx-card-flag-circle';
+                cardFlagImg.src = cdnFlag;
+                cardFlagSvg.parentNode.insertBefore(cardFlagImg, cardFlagSvg);
+            } else if (cardFlagImg) {
+                if (cardFlagImg.src !== cdnFlag) cardFlagImg.src = cdnFlag;
+                cardFlagImg.classList.remove('qx-hide-orig-el');
+            }
+        } else if (nameEl && nameEl.parentElement) {
+            if (!cardFlagImg) {
+                cardFlagImg = document.createElement('img');
+                cardFlagImg.className = 'qx-card-flag-circle';
+                cardFlagImg.src = cdnFlag;
+                nameEl.parentElement.insertBefore(cardFlagImg, nameEl);
+            } else if (cardFlagImg.src !== cdnFlag) {
+                cardFlagImg.src = cdnFlag;
+            }
+        }
+    }
+
     function fixLeaderboardUI() {
         const currentBalance = getBalance();
         if (currentBalance === null) return;
@@ -1176,7 +1360,6 @@
         const isLoss = profitAmount < 0;
         const activeCountry = window.qxCustomCountry || panelConfig.country || 'Bangladesh';
         const countryCode = countryFlagMap[activeCountry] || 'bd';
-        const flagUrl = `https://flagcdn.com/24x18/${countryCode}.png`;
 
         const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT, null, false);
         let node;
@@ -1186,7 +1369,7 @@
             }
         }
 
-        let nameSet = false;
+        let nameEl = null;
         const leafElements = [...card.querySelectorAll('div, span')].filter(el => el.children.length === 0);
 
         for (const el of leafElements) {
@@ -1200,7 +1383,7 @@
                 const targetColor = isLoss ? '#ef4444' : '#0faf59';
                 el.style.setProperty('color', targetColor, 'important');
             } else if (
-                !nameSet &&
+                !nameEl &&
                 !/your\s+position/i.test(t) &&
                 !isRankValue(t) &&
                 !t.includes('How does') &&
@@ -1209,41 +1392,15 @@
                 if (el.textContent !== customName) {
                     el.textContent = customName;
                 }
-                nameSet = true;
-
-                const parentRow = el.parentElement;
-                if (parentRow) {
-                    const cardUseFlag = [...parentRow.querySelectorAll('svg use')].find(u => /flag-/i.test(getUseHref(u)));
-                    if (cardUseFlag) {
-                        const curHref = getUseHref(cardUseFlag);
-                        const targetHref = curHref.replace(/#flag-[a-z0-9_-]+/i, `#flag-${countryCode}`);
-                        if (curHref !== targetHref) {
-                            cardUseFlag.setAttribute('href', targetHref);
-                            cardUseFlag.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', targetHref);
-                        }
-                    } else {
-                        parentRow.querySelectorAll('svg').forEach(svg => {
-                            svg.style.setProperty('display', 'none', 'important');
-                        });
-                        let existingFlag = parentRow.querySelector('.qx-leaderboard-flag');
-                        if (!existingFlag) {
-                            const flagImg = document.createElement('img');
-                            flagImg.className = 'qx-leaderboard-flag';
-                            flagImg.src = flagUrl;
-                            parentRow.insertBefore(flagImg, el);
-                        } else {
-                            if (existingFlag.src !== flagUrl) existingFlag.src = flagUrl;
-                            existingFlag.style.display = 'inline-block';
-                        }
-                    }
-                }
+                nameEl = el;
             }
         }
 
+        updateTopCardFlag(card, nameEl, countryCode);
         fixLeaderboardPositionAndList(card, customName, formattedProfit, isLoss, countryCode);
     }
 
-    // --- 10. TIER LOGIC & DEMO ACCOUNT ROW ---
+    // --- 10. TIER LOGIC & STRICT LIVE/DEMO ACCOUNT SEPARATION ---
     function getTierInfo(balance) {
         if (balance >= 10000) {
             return { iconId: 'icon-profile-level-vip', label: 'vip:', profitText: '+4% profit' };
@@ -1314,6 +1471,22 @@
         });
     }
 
+    function findSingleAccountRow(textNode) {
+        let cur = textNode.parentElement;
+        let best = cur;
+        while (cur && cur !== document.body) {
+            const txt = cur.textContent || '';
+            const hasLive = /live\s+account/i.test(txt);
+            const hasDemo = /demo\s+account/i.test(txt);
+            if (hasLive && hasDemo) {
+                break;
+            }
+            best = cur;
+            cur = cur.parentElement;
+        }
+        return best;
+    }
+
     function fixAccountLabels() {
         const labelNodes = [];
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
@@ -1328,8 +1501,7 @@
 
         if (labelNodes.length >= 2) {
             const rows = labelNodes.map((textNode, idx) => {
-                const row = textNode.parentElement.closest('li[class*="RdTBn"], li, a, div[class*="account"]') ||
-                            textNode.parentElement.parentElement;
+                const row = findSingleAccountRow(textNode);
                 const rowText = row ? (row.textContent || '') : '';
                 const hasDailyLimit = /daily limit|set limit/i.test(rowText);
                 const hasEditOrRefresh = Boolean(
@@ -1341,6 +1513,10 @@
                 );
                 return { textNode, row, idx, hasDailyLimit, hasEditOrRefresh };
             });
+
+            const liveBal = getBalance();
+            const hasLiveSpoof = String(panelConfig.spoofLiveBalance ?? '').trim() !== '' && liveBal !== null;
+            const formattedLive = liveBal !== null ? formatDollar(liveBal) : null;
 
             rows.forEach(item => {
                 const isDemoRow = item.hasEditOrRefresh || (!item.hasDailyLimit && item.idx >= 1);
@@ -1361,17 +1537,16 @@
                         if (linkEl) linkEl.classList.remove('active');
                         item.row.classList.remove('active');
 
-                        if (panelConfig.spoofDemoBalance !== '' && panelConfig.spoofDemoBalance !== null) {
-                            const spoofVal = parseFloat(panelConfig.spoofDemoBalance);
+                        // Apply Spoof Demo Balance strictly ONLY to Demo Account row
+                        const demoSpoofStr = String(panelConfig.spoofDemoBalance ?? '').trim();
+                        if (demoSpoofStr !== '') {
+                            const spoofVal = parseFloat(demoSpoofStr);
                             if (Number.isFinite(spoofVal) && spoofVal >= 0) {
-                                const formattedSpoof = '$' + spoofVal.toLocaleString('en-US', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2
-                                });
+                                const formattedSpoof = formatDollar(spoofVal);
                                 const tw = document.createTreeWalker(item.row, NodeFilter.SHOW_TEXT, null, false);
                                 let tn;
                                 while ((tn = tw.nextNode())) {
-                                    if (tn.nodeValue && tn.nodeValue.includes('$')) {
+                                    if (tn.nodeValue && /\$\s*[\d,]+(?:\.\d+)?/.test(tn.nodeValue)) {
                                         if (tn.nodeValue.trim() !== formattedSpoof) {
                                             tn.nodeValue = formattedSpoof;
                                         }
@@ -1399,6 +1574,22 @@
                         if (inputRadio && !inputRadio.checked) inputRadio.checked = true;
                         const linkEl = item.row.tagName === 'A' ? item.row : item.row.querySelector('a');
                         if (linkEl) linkEl.classList.add('active');
+
+                        // Apply Live Balance strictly ONLY to Live Account row (never Demo row!)
+                        if (hasLiveSpoof && formattedLive) {
+                            const tw = document.createTreeWalker(item.row, NodeFilter.SHOW_TEXT, null, false);
+                            let tn;
+                            while ((tn = tw.nextNode())) {
+                                const val = (tn.nodeValue || '').trim();
+                                const pText = tn.parentElement?.parentElement?.textContent || '';
+                                if (/\$\s*[\d,]+(?:\.\d+)?/.test(val) && !/daily limit/i.test(pText)) {
+                                    if (val !== formattedLive) {
+                                        tn.nodeValue = formattedLive;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
             });
@@ -1444,10 +1635,10 @@
     function fixBalancesAndUI() {
         const balNum = getBalance();
         if (balNum === null) return;
-        const mainBalance = '$' + balNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const mainBalance = formatDollar(balNum);
 
         document.querySelectorAll('div, span').forEach(el => {
-            if (el.closest('#qx-control-overlay, #qx-tx-overlay')) return;
+            if (el.closest('[data-qx-account="demo"], #qx-control-overlay, #qx-tx-overlay')) return;
             if (el.textContent && el.textContent.trim() === 'The daily limit is not set') {
                 const parent = el.parentElement;
                 if (parent) {
@@ -1575,6 +1766,13 @@
                     <div class="qx-bal-val" id="qx-cp-balance">$0.00</div>
                 </div>
                 <div class="qx-field">
+                    <label class="qx-field-label">Set Live Account Balance ($)</label>
+                    <div class="qx-input-row">
+                        <input type="number" step="any" class="qx-input" id="qx-cp-live-bal" placeholder="e.g. 50000 (blank = real balance)" />
+                        <button type="button" class="qx-reset-btn" id="qx-cp-live-reset" title="Reset to Real Balance">↻</button>
+                    </div>
+                </div>
+                <div class="qx-field">
                     <label class="qx-field-label">Leaderboard Name</label>
                     <input type="text" class="qx-input" id="qx-cp-name" placeholder="Trader Eyasin X" />
                 </div>
@@ -1598,7 +1796,11 @@
                 </div>
                 <div class="qx-field">
                     <label class="qx-field-label">Spoof Demo Balance (Dropdown Row 2)</label>
-                    <input type="number" step="any" class="qx-input" id="qx-cp-demo-bal" placeholder="e.g. 3658 (leave blank for default)" />
+                    <input type="number" step="any" class="qx-input" id="qx-cp-demo-bal" placeholder="e.g. 20 (leave blank for default)" />
+                </div>
+                <div class="qx-field">
+                    <label class="qx-field-label">Custom Logo / Avatar URL (Optional)</label>
+                    <input type="text" class="qx-input" id="qx-cp-avatar" placeholder="Paste image URL (blank = auto)" />
                 </div>
                 <button type="button" class="qx-btn-primary" id="qx-cp-apply">✓ APPLY CHANGES</button>
                 <div class="qx-btn-row">
@@ -1670,12 +1872,13 @@
             const bal = getBalance() || 0;
             const startCap = parseFloat((window.qxCustomStartingCapital || '0').replace(/[^0-9.-]/g, '')) || 0;
             const curProfit = bal - startCap;
-            document.getElementById('qx-cp-balance').textContent =
-                '$' + bal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            document.getElementById('qx-cp-balance').textContent = formatDollar(bal);
+            document.getElementById('qx-cp-live-bal').value = panelConfig.spoofLiveBalance ?? '';
             document.getElementById('qx-cp-name').value = window.qxCustomName || panelConfig.customName || 'Trader Eyasin X';
             document.getElementById('qx-cp-country').value = window.qxCustomCountry || panelConfig.country || 'Bangladesh';
             document.getElementById('qx-cp-profit').value = Number(curProfit.toFixed(2));
             document.getElementById('qx-cp-demo-bal').value = panelConfig.spoofDemoBalance ?? '';
+            document.getElementById('qx-cp-avatar').value = window.qxCustomAvatar || panelConfig.customAvatar || '';
             document.getElementById('qx-cp-analytics-box').classList.remove('qx-open');
         }
 
@@ -1772,15 +1975,44 @@
             if (e.target === controlOverlay) controlOverlay.classList.remove('qx-open');
         });
 
+        document.getElementById('qx-cp-live-reset').addEventListener('click', () => {
+            document.getElementById('qx-cp-live-bal').value = '';
+            const rawBal = getRawLiveBalance();
+            if (rawBal !== null) {
+                document.getElementById('qx-cp-balance').textContent = formatDollar(rawBal);
+            }
+        });
+
         document.getElementById('qx-cp-profit-reset').addEventListener('click', () => {
             document.getElementById('qx-cp-profit').value = '0';
         });
 
         document.getElementById('qx-cp-apply').addEventListener('click', () => {
+            const newLiveBalStr = document.getElementById('qx-cp-live-bal').value.trim();
             const newName = document.getElementById('qx-cp-name').value.trim() || 'Trader Eyasin X';
             const newCountry = document.getElementById('qx-cp-country').value || 'Bangladesh';
             const desiredProfit = parseFloat(document.getElementById('qx-cp-profit').value);
             const demoBalVal = document.getElementById('qx-cp-demo-bal').value.trim();
+            const newAvatarUrl = document.getElementById('qx-cp-avatar').value.trim();
+
+            const rawBal = getRawLiveBalance();
+            if (newLiveBalStr !== '') {
+                const parsedLive = parseFloat(newLiveBalStr);
+                if (Number.isFinite(parsedLive) && parsedLive >= 0) {
+                    panelConfig.spoofLiveBalance = String(parsedLive);
+                    panelConfig.liveBalanceAnchor = rawBal !== null ? rawBal : null;
+                }
+            } else {
+                panelConfig.spoofLiveBalance = '';
+                panelConfig.liveBalanceAnchor = null;
+                // Restore original DOM text in header trigger if reverting to real balance
+                const trigger = document.querySelector('qx-usermenu-trigger');
+                const balEl = trigger?.shadowRoot?.querySelector('.balance');
+                if (balEl && rawBal !== null) {
+                    window.__qxLastWrittenLiveStr = null;
+                    balEl.textContent = formatDollar(rawBal);
+                }
+            }
 
             const curBal = getBalance() || 0;
             const targetProfit = Number.isFinite(desiredProfit) ? desiredProfit : 0;
@@ -1789,11 +2021,13 @@
             window.qxCustomName = newName;
             window.qxCustomCountry = newCountry;
             window.qxCustomStartingCapital = newStartCap;
+            window.qxCustomAvatar = newAvatarUrl;
 
             panelConfig.customName = newName;
             panelConfig.country = newCountry;
             panelConfig.startingCapital = newStartCap;
             panelConfig.spoofDemoBalance = demoBalVal;
+            panelConfig.customAvatar = newAvatarUrl;
             saveConfig(panelConfig);
 
             fix();
@@ -1818,7 +2052,7 @@
                 </div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
                     <span style="color:#9ca3af;">Initial Capital:</span>
-                    <strong style="color:#fff;">$${startCap.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                    <strong style="color:#fff;">${formatDollar(startCap)}</strong>
                 </div>
                 <div style="display:flex;justify-content:space-between;">
                     <span style="color:#9ca3af;">Net Profit / Loss:</span>
@@ -1915,11 +2149,12 @@
 
     function syncTriggerShadow(trigger) {
         if (!trigger) return;
-        const rawBalanceText = trigger.shadowRoot
-            ? (trigger.shadowRoot.querySelector('.balance')?.textContent || trigger.innerText || '')
-            : (trigger.innerText || '');
-        const match = rawBalanceText.match(/\$([\d,]+\.?\d*)/);
-        const balanceNum = match ? parseFloat(match[1].replace(/,/g, '')) : (getBalance() || 0);
+
+        // First record any raw balance update from Quotex before spoofing
+        const balanceNum = getBalance() || 0;
+        const hasLiveSpoof = String(panelConfig.spoofLiveBalance ?? '').trim() !== '';
+        const formattedLive = formatDollar(balanceNum);
+
         const currentIconId = getLevel(balanceNum);
         const iconSvgHtml = `
             <svg class="icon" style="width: 16px; height: 16px;">
@@ -1930,6 +2165,14 @@
         if (trigger.shadowRoot) {
             attachShadowGuard(trigger.shadowRoot);
             sanitizeSubtree(trigger.shadowRoot);
+
+            const balEl = trigger.shadowRoot.querySelector('.balance');
+            if (balEl && hasLiveSpoof) {
+                if (balEl.textContent.trim() !== formattedLive) {
+                    window.__qxLastWrittenLiveStr = formattedLive;
+                    balEl.textContent = formattedLive;
+                }
+            }
 
             const currentIcon = trigger.shadowRoot.querySelector('svg.icon, svg:first-of-type');
             if (currentIcon) {
@@ -1976,7 +2219,7 @@
                     ${iconSvgHtml}
                     <div class="text">
                         <div class="name">LIVE</div>
-                        <div class="balance">${match ? match[0] : '$0.00'}</div>
+                        <div class="balance">${formattedLive}</div>
                     </div>
                     <svg class="caret" width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M1 1L5 5L9 1" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -2041,6 +2284,7 @@
     function guardLive() {
         cleanUrl();
         cleanTitle();
+        getUserAvatarUrl();
         fixAccountLabels();
 
         if (document.body) {
@@ -2146,5 +2390,5 @@
         });
     }
 
-    console.log("0X Premium Full Suite (Zero-Flicker + Fixed Leaderboard) Active!");
+    console.log("0X Premium Full Suite (Zero-Flicker + Full Control) Active!");
 })();
