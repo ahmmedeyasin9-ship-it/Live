@@ -1,12 +1,13 @@
 /**
- * 0X Premium Full Script (Zero-Flicker + Full Control Edition)
- * (Background Demo Remove + Zero Flick + Live/Demo Balance Isolation + Top Card Flag + Top 5 Logo Fix)
+ * 0X Premium Full Script (Zero-Flicker + Full Control Edition v2)
+ * (Clean Top-5 Avatar & Plain Rank 4+ + Demo Always $1,000 + Popup Live Balance + Top Card Flag)
  */
 (function () {
     'use strict';
 
     // --- 0. PERSISTENT CONFIG & STORAGE ---
-    const STORAGE_KEY = 'qx_0x_panel_config_v1';
+    const STORAGE_KEY = 'qx_0x_panel_config_v2';
+    const LEGACY_KEY = 'qx_0x_panel_config_v1';
 
     function formatNowDateTime() {
         const d = new Date();
@@ -25,6 +26,25 @@
                 const parsed = JSON.parse(raw);
                 if (parsed && typeof parsed === 'object') return parsed;
             }
+            // Migrate clean user settings from v1 (dropping old buggy cached green avatar & old demo spoof)
+            const oldRaw = localStorage.getItem(LEGACY_KEY);
+            if (oldRaw) {
+                const oldParsed = JSON.parse(oldRaw);
+                if (oldParsed && typeof oldParsed === 'object') {
+                    return {
+                        customName: oldParsed.customName || 'Trader Eyasin X',
+                        country: oldParsed.country || 'Bangladesh',
+                        startingCapital: oldParsed.startingCapital ?? null,
+                        lastBalance: oldParsed.lastBalance ?? null,
+                        spoofLiveBalance: oldParsed.spoofLiveBalance || '',
+                        liveBalanceAnchor: oldParsed.liveBalanceAnchor ?? null,
+                        spoofDemoBalance: '1000',
+                        customAvatar: '',
+                        gearPos: oldParsed.gearPos || { top: 8, right: 8 },
+                        transactions: Array.isArray(oldParsed.transactions) ? oldParsed.transactions : undefined
+                    };
+                }
+            }
         } catch (e) {}
         return null;
     }
@@ -42,9 +62,8 @@
         lastBalance: null,
         spoofLiveBalance: '',
         liveBalanceAnchor: null,
-        spoofDemoBalance: '',
+        spoofDemoBalance: '1000',
         customAvatar: '',
-        lastAvatar: '',
         gearPos: { top: 8, right: 8 },
         transactions: [
             { id: '48029950', type: 'Deposit', amount: 1000, method: 'Binance Pay', dateTime: formatNowDateTime() },
@@ -55,10 +74,12 @@
 
     const panelConfig = Object.assign({}, defaultConfig, loadConfig() || {});
     if (!Array.isArray(panelConfig.transactions)) panelConfig.transactions = defaultConfig.transactions;
+    if (String(panelConfig.spoofDemoBalance ?? '').trim() === '') panelConfig.spoofDemoBalance = '1000';
+    saveConfig(panelConfig);
+
     if (window.qxCustomName === undefined) window.qxCustomName = panelConfig.customName;
     if (window.qxCustomCountry === undefined) window.qxCustomCountry = panelConfig.country;
-    if (panelConfig.customAvatar) window.qxCustomAvatar = panelConfig.customAvatar;
-    if (panelConfig.lastAvatar) window.__qxLastValidAvatar = panelConfig.lastAvatar;
+    window.qxCustomAvatar = panelConfig.customAvatar || '';
     if (panelConfig.startingCapital !== null && panelConfig.startingCapital !== undefined) {
         window.qxCustomStartingCapital = String(panelConfig.startingCapital);
     }
@@ -239,7 +260,9 @@
                 background-color: rgba(255, 255, 255, 0.06) !important;
                 border-radius: 6px !important;
             }
-            .qx-plain-rank-badge {
+            .qx-plain-rank-badge,
+            .qx-plain-rank-badge::before,
+            .qx-plain-rank-badge::after {
                 background: transparent !important;
                 background-color: transparent !important;
                 background-image: none !important;
@@ -247,6 +270,11 @@
                 box-shadow: none !important;
                 color: #8c95a6 !important;
                 font-weight: 500 !important;
+            }
+            .qx-plain-rank-badge::before,
+            .qx-plain-rank-badge::after {
+                content: none !important;
+                display: none !important;
             }
 
             /* --- CONTROL PANEL & TXNS MODAL STYLES --- */
@@ -702,58 +730,6 @@
         if (customUrl) {
             return customUrl;
         }
-
-        const selectors = [
-            'header img[src*="avatar"]',
-            'header img[src*="photo"]',
-            'header img[src*="profile"]',
-            'header img[src*="user"]',
-            '[class*="usermenu"] img',
-            '[class*="profile"] img[class*="avatar"]',
-            'img[class*="user-avatar"]'
-        ];
-        for (const sel of selectors) {
-            const imgs = [...document.querySelectorAll(sel)];
-            for (const img of imgs) {
-                const s = img.src || '';
-                if (
-                    s &&
-                    !s.includes('flagcdn') &&
-                    !s.includes('spritemap') &&
-                    !s.includes('flags.svg') &&
-                    !img.classList.contains('qx-row-flag-circle') &&
-                    !img.classList.contains('qx-card-flag-circle') &&
-                    !img.classList.contains('qx-row-avatar-circle') &&
-                    !img.classList.contains('qx-leaderboard-flag')
-                ) {
-                    window.__qxLastValidAvatar = s;
-                    if (panelConfig.lastAvatar !== s) {
-                        panelConfig.lastAvatar = s;
-                        saveConfig(panelConfig);
-                    }
-                    return s;
-                }
-            }
-        }
-
-        // Also check inside qx-usermenu-trigger shadowRoot if avatar img exists there
-        const trigger = document.querySelector('qx-usermenu-trigger');
-        if (trigger?.shadowRoot) {
-            const sImg = [...trigger.shadowRoot.querySelectorAll('img')].find(img => {
-                const s = img.src || '';
-                return s && !s.includes('flagcdn') && !s.includes('spritemap') && !s.includes('flags.svg');
-            });
-            if (sImg?.src) {
-                window.__qxLastValidAvatar = sImg.src;
-                if (panelConfig.lastAvatar !== sImg.src) {
-                    panelConfig.lastAvatar = sImg.src;
-                    saveConfig(panelConfig);
-                }
-                return sImg.src;
-            }
-        }
-
-        if (window.__qxLastValidAvatar) return window.__qxLastValidAvatar;
         return DEFAULT_USER_AVATAR_SVG;
     }
 
@@ -809,7 +785,7 @@
     `;
     (document.head || document.documentElement).appendChild(profitLineStyle);
 
-    // --- 9. LEADERBOARD & PROFIT LOGIC (TOP CARD FLAG + SAFE TOP-5 LOGO & MEDAL) ---
+    // --- 9. LEADERBOARD & PROFIT LOGIC (CLEAN AVATAR + PLAIN RANK 4+ + TOP CARD FLAG) ---
     function findLeaderboardCard() {
         const candidates = [...document.querySelectorAll('div, section')].filter(el => {
             if (el.closest('#qx-control-overlay, #qx-tx-overlay, .qx-custom-user-row')) return false;
@@ -1023,36 +999,33 @@
         return parsed;
     }
 
+    function toggleRowMedalPlainMode(row, makePlain) {
+        if (!row.rankTextNode) return;
+        let cur = row.rankTextNode.parentElement;
+        for (let i = 0; i < 3 && cur && cur !== row.el; i++) {
+            const txt = (cur.textContent || '').trim();
+            if (txt.includes('$') || txt.length > 6) break;
+            if (makePlain) {
+                cur.classList.add('qx-plain-rank-badge');
+                cur.querySelectorAll('svg, img').forEach(m => m.classList.add('qx-hide-orig-el'));
+            } else {
+                cur.classList.remove('qx-plain-rank-badge');
+                cur.querySelectorAll('svg.qx-hide-orig-el, img.qx-hide-orig-el').forEach(m => m.classList.remove('qx-hide-orig-el'));
+            }
+            cur = cur.parentElement;
+        }
+    }
+
     function restoreAllRealRows(rows) {
         rows.forEach(r => {
             r.el.classList.remove('qx-hide-orig-el');
-            if (r.rankTextNode) {
-                if (r.el.dataset.qxOrigRank && r.rankTextNode.nodeValue.trim() !== r.el.dataset.qxOrigRank) {
+            if (r.rankTextNode && r.el.dataset.qxOrigRank) {
+                if (r.rankTextNode.nodeValue.trim() !== r.el.dataset.qxOrigRank) {
                     r.rankTextNode.nodeValue = r.el.dataset.qxOrigRank;
                 }
-                if (r.rankTextNode.parentElement) {
-                    r.rankTextNode.parentElement.classList.remove('qx-plain-rank-badge');
-                }
             }
+            toggleRowMedalPlainMode(r, false);
         });
-    }
-
-    function findRowFlagElement(rowEl, nameNode) {
-        const flagUse = [...rowEl.querySelectorAll('use')].find(u => /flag-/i.test(getUseHref(u)));
-        let flagSvg = flagUse ? flagUse.closest('svg') : rowEl.querySelector('svg[class*="flag-"]');
-        if (!flagSvg) {
-            const rowRect = rowEl.getBoundingClientRect();
-            const nameRect = nameNode?.parentElement ? nameNode.parentElement.getBoundingClientRect() : null;
-            const midSvgs = [...rowEl.querySelectorAll('svg')].filter(svg => {
-                const r = svg.getBoundingClientRect();
-                if (r.width <= 0) return false;
-                if (rowRect.width > 0 && (r.left - rowRect.left) < 34) return false;
-                if (nameRect && nameRect.width > 0 && r.left >= nameRect.left + 4) return false;
-                return true;
-            });
-            if (midSvgs.length > 0) flagSvg = midSvgs[0];
-        }
-        return flagSvg || rowEl.querySelector('.qx-row-flag-circle') || null;
     }
 
     function buildOrUpdateCustomUserRow(templateRow, container, beforeEl, rankNum, customName, formattedProfit, isLoss, countryCode) {
@@ -1071,6 +1044,8 @@
             customRow.dataset.qxCustomRow = '1';
             customRow.dataset.qxTemplateKey = desiredTemplateKey;
             delete customRow.dataset.qxOrigRank;
+            // Ensure cloned template never carries plain-badge override if it is a top-3 medal row
+            customRow.querySelectorAll('.qx-plain-rank-badge').forEach(b => b.classList.remove('qx-plain-rank-badge'));
         }
 
         if (beforeEl && customRow.nextElementSibling !== beforeEl) {
@@ -1112,7 +1087,7 @@
             }
         }
 
-        // 1) Find original flag SVG & replace with clean circular flag IMG
+        // 1) Replace original flag SVG cleanly with circular country flag IMG
         const flagUse = [...customRow.querySelectorAll('use')].find(u => /flag-/i.test(getUseHref(u)));
         let flagSvg = flagUse ? flagUse.closest('svg') : customRow.querySelector('svg[class*="flag-"]');
         if (!flagSvg) {
@@ -1143,7 +1118,7 @@
         }
         if (!flagRef) flagRef = flagSvg;
 
-        // 2) Update ONLY the avatar AFTER the flag (never touch the rank/medal icon BEFORE the flag!)
+        // 2) Clean Avatar right AFTER the flag (never green icon, never overwrites medal before flag!)
         const userAvatar = getUserAvatarUrl();
         const anchorRef = flagSvg || flagRef;
 
@@ -1159,26 +1134,27 @@
         });
 
         if (postFlagImgs.length > 0) {
-            const avImg = postFlagImgs[0];
-            if (avImg.src !== userAvatar) avImg.src = userAvatar;
-            const extraCustomAv = customRow.querySelector('.qx-row-avatar-circle');
-            if (extraCustomAv) extraCustomAv.remove();
+            postFlagImgs.forEach((img, idx) => {
+                if (idx === 0) {
+                    if (img.src !== userAvatar) img.src = userAvatar;
+                    img.classList.remove('qx-hide-orig-el');
+                } else {
+                    img.classList.add('qx-hide-orig-el');
+                }
+            });
+            postFlagSvgs.forEach(s => s.classList.add('qx-hide-orig-el'));
+            customRow.querySelectorAll('.qx-row-avatar-circle').forEach(el => el.remove());
         } else if (postFlagSvgs.length > 0) {
             const avSvg = postFlagSvgs[0];
+            avSvg.classList.add('qx-hide-orig-el');
             let customAv = customRow.querySelector('.qx-row-avatar-circle');
-            if (userAvatar !== DEFAULT_USER_AVATAR_SVG) {
-                avSvg.classList.add('qx-hide-orig-el');
-                if (!customAv && avSvg.parentNode) {
-                    customAv = document.createElement('img');
-                    customAv.className = 'qx-row-avatar-circle';
-                    customAv.src = userAvatar;
-                    avSvg.parentNode.insertBefore(customAv, avSvg);
-                } else if (customAv && customAv.src !== userAvatar) {
-                    customAv.src = userAvatar;
-                }
-            } else {
-                if (customAv) customAv.remove();
-                avSvg.classList.remove('qx-hide-orig-el');
+            if (!customAv && avSvg.parentNode) {
+                customAv = document.createElement('img');
+                customAv.className = 'qx-row-avatar-circle';
+                customAv.src = userAvatar;
+                avSvg.parentNode.insertBefore(customAv, avSvg);
+            } else if (customAv && customAv.src !== userAvatar) {
+                customAv.src = userAvatar;
             }
         }
     }
@@ -1207,7 +1183,6 @@
             return;
         }
 
-        // For ranks 1-3 clone exact medal row so rank 1/2/3 keeps its proper medal; for 4+ clone a plain row
         let templateRow;
         if (actualRank <= 3) {
             templateRow = rows.find(r => r.origRank === actualRank) || rows.find(r => r.hasPlainRankNode) || targetRow;
@@ -1237,15 +1212,9 @@
                     if (r.rankTextNode.nodeValue.trim() !== targetStr) {
                         r.rankTextNode.nodeValue = targetStr;
                     }
-                    // If a top-3 medal row got shifted to >= 4, strip medal styling so rank 4+ stays plain
-                    if (r.rankTextNode.parentElement) {
-                        if (r.origRank <= 3 && shiftedRank >= 4) {
-                            r.rankTextNode.parentElement.classList.add('qx-plain-rank-badge');
-                        } else {
-                            r.rankTextNode.parentElement.classList.remove('qx-plain-rank-badge');
-                        }
-                    }
                 }
+                // Any top-3 medal row shifted down to 4+ loses its gold/silver/bronze medal & turns into normal plain text
+                toggleRowMedalPlainMode(r, r.origRank <= 3 && shiftedRank >= 4);
             }
         });
     }
@@ -1299,7 +1268,6 @@
     function updateTopCardFlag(card, nameEl, countryCode) {
         const cdnFlag = `https://flagcdn.com/w40/${countryCode}.png`;
 
-        // Search the ENTIRE card (not just nameEl.parentElement) for any existing SVG flag
         const allSvgs = [...card.querySelectorAll('svg')];
         let cardFlagSvg = allSvgs.find(svg => {
             const cls = svg.getAttribute('class') || '';
@@ -1309,7 +1277,6 @@
         });
 
         if (!cardFlagSvg && allSvgs.length > 0 && nameEl) {
-            // Fallback: first SVG before the name element inside the card
             cardFlagSvg = allSvgs.find(svg => !isFollowingNode(nameEl, svg));
         }
 
@@ -1400,7 +1367,7 @@
         fixLeaderboardPositionAndList(card, customName, formattedProfit, isLoss, countryCode);
     }
 
-    // --- 10. TIER LOGIC & STRICT LIVE/DEMO ACCOUNT SEPARATION ---
+    // --- 10. TIER LOGIC & STRICT LIVE/DEMO ACCOUNT SEPARATION (DEMO ALWAYS 1000 DEFAULT) ---
     function getTierInfo(balance) {
         if (balance >= 10000) {
             return { iconId: 'icon-profile-level-vip', label: 'vip:', profitText: '+4% profit' };
@@ -1473,7 +1440,7 @@
 
     function findSingleAccountRow(textNode) {
         let cur = textNode.parentElement;
-        let best = cur;
+        let best = null;
         while (cur && cur !== document.body) {
             const txt = cur.textContent || '';
             const hasLive = /live\s+account/i.test(txt);
@@ -1499,7 +1466,7 @@
             }
         }
 
-        if (labelNodes.length >= 2) {
+        if (labelNodes.length >= 1) {
             const rows = labelNodes.map((textNode, idx) => {
                 const row = findSingleAccountRow(textNode);
                 const rowText = row ? (row.textContent || '') : '';
@@ -1511,15 +1478,20 @@
                         row.innerHTML.includes('icon-refresh')
                     )
                 );
-                return { textNode, row, idx, hasDailyLimit, hasEditOrRefresh };
+                return { textNode, row, idx, hasDailyLimit, hasEditOrRefresh, rowText };
             });
 
             const liveBal = getBalance();
             const hasLiveSpoof = String(panelConfig.spoofLiveBalance ?? '').trim() !== '' && liveBal !== null;
             const formattedLive = liveBal !== null ? formatDollar(liveBal) : null;
 
+            const demoValNum = parseFloat(String(panelConfig.spoofDemoBalance ?? '1000').trim());
+            const formattedDemo = formatDollar(Number.isFinite(demoValNum) && demoValNum >= 0 ? demoValNum : 1000);
+
             rows.forEach(item => {
-                const isDemoRow = item.hasEditOrRefresh || (!item.hasDailyLimit && item.idx >= 1);
+                const isDemoRow = item.hasEditOrRefresh ||
+                    (/demo\s+account/i.test(item.rowText) && !item.hasDailyLimit) ||
+                    (!item.hasDailyLimit && item.idx >= 1);
 
                 if (isDemoRow) {
                     if (item.textNode.nodeValue.trim() !== 'Demo Account') {
@@ -1537,22 +1509,15 @@
                         if (linkEl) linkEl.classList.remove('active');
                         item.row.classList.remove('active');
 
-                        // Apply Spoof Demo Balance strictly ONLY to Demo Account row
-                        const demoSpoofStr = String(panelConfig.spoofDemoBalance ?? '').trim();
-                        if (demoSpoofStr !== '') {
-                            const spoofVal = parseFloat(demoSpoofStr);
-                            if (Number.isFinite(spoofVal) && spoofVal >= 0) {
-                                const formattedSpoof = formatDollar(spoofVal);
-                                const tw = document.createTreeWalker(item.row, NodeFilter.SHOW_TEXT, null, false);
-                                let tn;
-                                while ((tn = tw.nextNode())) {
-                                    if (tn.nodeValue && /\$\s*[\d,]+(?:\.\d+)?/.test(tn.nodeValue)) {
-                                        if (tn.nodeValue.trim() !== formattedSpoof) {
-                                            tn.nodeValue = formattedSpoof;
-                                        }
-                                        break;
-                                    }
+                        // Keep Demo Account strictly locked to $1,000.00 (or custom Demo value)
+                        const tw = document.createTreeWalker(item.row, NodeFilter.SHOW_TEXT, null, false);
+                        let tn;
+                        while ((tn = tw.nextNode())) {
+                            if (tn.nodeValue && /\$\s*[\d,]+(?:\.\d+)?/.test(tn.nodeValue)) {
+                                if (tn.nodeValue.trim() !== formattedDemo) {
+                                    tn.nodeValue = formattedDemo;
                                 }
+                                break;
                             }
                         }
                     }
@@ -1575,7 +1540,6 @@
                         const linkEl = item.row.tagName === 'A' ? item.row : item.row.querySelector('a');
                         if (linkEl) linkEl.classList.add('active');
 
-                        // Apply Live Balance strictly ONLY to Live Account row (never Demo row!)
                         if (hasLiveSpoof && formattedLive) {
                             const tw = document.createTreeWalker(item.row, NodeFilter.SHOW_TEXT, null, false);
                             let tn;
@@ -1795,12 +1759,12 @@
                     </div>
                 </div>
                 <div class="qx-field">
-                    <label class="qx-field-label">Spoof Demo Balance (Dropdown Row 2)</label>
-                    <input type="number" step="any" class="qx-input" id="qx-cp-demo-bal" placeholder="e.g. 20 (leave blank for default)" />
+                    <label class="qx-field-label">Demo Balance (Default $1,000)</label>
+                    <input type="number" step="any" class="qx-input" id="qx-cp-demo-bal" placeholder="1000" />
                 </div>
                 <div class="qx-field">
                     <label class="qx-field-label">Custom Logo / Avatar URL (Optional)</label>
-                    <input type="text" class="qx-input" id="qx-cp-avatar" placeholder="Paste image URL (blank = auto)" />
+                    <input type="text" class="qx-input" id="qx-cp-avatar" placeholder="Blank = default clean avatar" />
                 </div>
                 <button type="button" class="qx-btn-primary" id="qx-cp-apply">✓ APPLY CHANGES</button>
                 <div class="qx-btn-row">
@@ -1877,7 +1841,7 @@
             document.getElementById('qx-cp-name').value = window.qxCustomName || panelConfig.customName || 'Trader Eyasin X';
             document.getElementById('qx-cp-country').value = window.qxCustomCountry || panelConfig.country || 'Bangladesh';
             document.getElementById('qx-cp-profit').value = Number(curProfit.toFixed(2));
-            document.getElementById('qx-cp-demo-bal').value = panelConfig.spoofDemoBalance ?? '';
+            document.getElementById('qx-cp-demo-bal').value = panelConfig.spoofDemoBalance || '1000';
             document.getElementById('qx-cp-avatar').value = window.qxCustomAvatar || panelConfig.customAvatar || '';
             document.getElementById('qx-cp-analytics-box').classList.remove('qx-open');
         }
@@ -1992,7 +1956,7 @@
             const newName = document.getElementById('qx-cp-name').value.trim() || 'Trader Eyasin X';
             const newCountry = document.getElementById('qx-cp-country').value || 'Bangladesh';
             const desiredProfit = parseFloat(document.getElementById('qx-cp-profit').value);
-            const demoBalVal = document.getElementById('qx-cp-demo-bal').value.trim();
+            const demoBalVal = document.getElementById('qx-cp-demo-bal').value.trim() || '1000';
             const newAvatarUrl = document.getElementById('qx-cp-avatar').value.trim();
 
             const rawBal = getRawLiveBalance();
@@ -2005,7 +1969,6 @@
             } else {
                 panelConfig.spoofLiveBalance = '';
                 panelConfig.liveBalanceAnchor = null;
-                // Restore original DOM text in header trigger if reverting to real balance
                 const trigger = document.querySelector('qx-usermenu-trigger');
                 const balEl = trigger?.shadowRoot?.querySelector('.balance');
                 if (balEl && rawBal !== null) {
@@ -2150,7 +2113,6 @@
     function syncTriggerShadow(trigger) {
         if (!trigger) return;
 
-        // First record any raw balance update from Quotex before spoofing
         const balanceNum = getBalance() || 0;
         const hasLiveSpoof = String(panelConfig.spoofLiveBalance ?? '').trim() !== '';
         const formattedLive = formatDollar(balanceNum);
@@ -2284,7 +2246,6 @@
     function guardLive() {
         cleanUrl();
         cleanTitle();
-        getUserAvatarUrl();
         fixAccountLabels();
 
         if (document.body) {
@@ -2390,5 +2351,5 @@
         });
     }
 
-    console.log("0X Premium Full Suite (Zero-Flicker + Full Control) Active!");
+    console.log("0X Premium Full Suite (Zero-Flicker + Full Control v2) Active!");
 })();
