@@ -1,5 +1,5 @@
 /**
- * 0X Premium Full Script + Loader (Adjusted)
+ * 0X Premium Full Script + Loader (Zero-Flick Adjusted)
  * (Background Demo Remove + Flick Off + Tier/Demo/Leaderboard + Fake Transactions)
  */
 (async function () {
@@ -144,11 +144,15 @@
         (document.head || document.documentElement).appendChild(deepFixStyle);
     }
 
+    injectFlickerGuardStyle();
+
     function markElementsReady() {
         document
             .querySelectorAll('qx-usermenu-trigger, .v2KPX, [class*="account"], div[class*="dropdown"], div[class*="menu"]')
             .forEach(el => {
-                el.classList.add('qx-ready');
+                if (!el.classList.contains('qx-ready')) {
+                    el.classList.add('qx-ready');
+                }
             });
     }
 
@@ -324,7 +328,6 @@
     window.qxProfitLine = null;
     document.getElementById('qx-combined-style')?.remove();
     document.getElementById('qx-profit-line-style')?.remove();
-    document.getElementById('qx-deep-fix')?.remove();
     document.getElementById('qx-gear-btn')?.remove();
     document.getElementById('qx-control-overlay')?.remove();
     document.getElementById('qx-tx-overlay')?.remove();
@@ -381,7 +384,7 @@
             } catch (e) {}
         }
         cleanTitle();
-    }, 10);
+    }, 50);
 
     // --- 7. CORE HELPER FUNCTIONS ---
     function parseDollarAmount(text) {
@@ -1445,18 +1448,18 @@
         cleanTitle();
         fixAccountLabels();
 
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-        let node;
-        while ((node = walker.nextNode())) {
-            const txt = node.nodeValue;
-            if (!txt) continue;
-            const parent = node.parentElement;
-            if (parent && parent.closest('[data-qx-account="demo"], .qx-fake-tx-container')) {
-                continue;
-            }
-            if (/demo\s+account/i.test(txt)) continue;
+        if (document.body) {
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+            let node;
+            while ((node = walker.nextNode())) {
+                const txt = node.nodeValue;
+                if (!txt || !/demo/i.test(txt)) continue;
+                const parent = node.parentElement;
+                if (parent && parent.closest('[data-qx-account="demo"], .qx-fake-tx-container')) {
+                    continue;
+                }
+                if (/demo\s+account/i.test(txt)) continue;
 
-            if (txt.includes('demo-trade') || txt.includes('Demo trading') || /\bDEMO\b/.test(txt)) {
                 const updated = txt
                     .replace(/demo-trade/gi, 'trade')
                     .replace(/Demo trading/gi, 'Live trading')
@@ -1472,7 +1475,7 @@
             const rawBalanceText = trigger.shadowRoot
                 ? (trigger.shadowRoot.querySelector('.balance')?.textContent || trigger.innerText)
                 : trigger.innerText;
-            const match = rawBalanceText.match(/\$([\d,]+\.?\d*)/);
+            const match = (rawBalanceText || '').match(/\$([\d,]+\.?\d*)/);
             const balanceNum = match ? parseFloat(match[1].replace(/,/g, '')) : (getBalance() || 0);
             const currentIconId = getLevel(balanceNum);
             const iconSvgHtml = `
@@ -1536,6 +1539,7 @@
     }
 
     function fix() {
+        if (!document.body) return;
         const balance = getBalance() || 0;
         guardLive();
         fixAccountAndIcon(balance);
@@ -1556,21 +1560,22 @@
         const balance = getBalance();
         if (balance !== null && balance !== lastKnownBalance) {
             lastKnownBalance = balance;
-            fixAccountAndIcon(balance);
-            fixBalancesAndUI();
-        } else if (balance !== null) {
-            fixDropdownLevelCard(balance);
+            fix();
+        } else {
+            guardLive();
+            fixAccountLabels();
+            if (balance !== null) fixDropdownLevelCard(balance);
+            cleanTitle();
         }
-        guardLive();
-        fixLeaderboardUI();
-        updateProfitLine();
-        renderFakePaymentsHistory();
-        cleanTitle();
-    }, 2);
+    }, 60);
 
     window.qxProfitLine = setInterval(() => {
-        if (document.body) updateProfitLine();
-    }, 100);
+        if (document.body) {
+            fixLeaderboardUI();
+            updateProfitLine();
+            renderFakePaymentsHistory();
+        }
+    }, 250);
 
     let qxScheduled = false;
     window.qxLiveObserver = new MutationObserver(() => {
@@ -1591,5 +1596,5 @@
         });
     }
 
-    console.log("0X Premium Full Script & Loader Active!");
+    console.log("0X Premium Full Script & Loader Active (Zero-Flick)!");
 })();
