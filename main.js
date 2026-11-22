@@ -1,20 +1,21 @@
 /**
- * 0X Premium Full Script — Server Release (client.js)
- * Host this file on your remote server (demotoliveadmin.lovable.app) as client.js
- * Executed dynamically after license verification via the Tampermonkey Popup client.
- * (Background Demo Remove + Flick Off + Tier/Demo/Leaderboard + Fake Transactions — no built-in gear icon/popup)
+ * 0X Premium Full Script
+ * (Background Demo Remove + Flick Off + Tier/Demo/Leaderboard + Control Panel + Fake Transactions)
  */
 (function () {
     'use strict';
 
-    // --- 0. PERSISTENT CONFIG & STORAGE SYNC WITH POPUP ---
+    // --- 0. PERSISTENT CONFIG & STORAGE ---
     const STORAGE_KEY = 'qx_0x_panel_config_v1';
-    const TX_STORAGE_KEY = 'qxFakeTransactions';
 
     function formatNowDateTime() {
         const d = new Date();
         const pad = n => String(n).padStart(2, '0');
         return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
+    function generateTxId() {
+        return String(Math.floor(10000000 + Math.random() * 90000000));
     }
 
     function loadConfig() {
@@ -34,27 +35,13 @@
         } catch (e) {}
     }
 
-    function loadTransactionsFromStorage() {
-        try {
-            const rawTx = localStorage.getItem(TX_STORAGE_KEY);
-            if (rawTx) {
-                const arr = JSON.parse(rawTx);
-                if (Array.isArray(arr)) return arr;
-            }
-        } catch (e) {}
-        const cfg = loadConfig();
-        if (cfg && Array.isArray(cfg.transactions)) return cfg.transactions;
-        return null;
-    }
-
     const defaultConfig = {
         customName: 'Trader Eyasin X',
         country: 'Bangladesh',
-        countryFlag: 'bd',
         startingCapital: null,
-        netProfitOverride: '',
         spoofDemoBalance: '',
         customAvatar: '',
+        gearPos: { top: 8, right: 8 },
         transactions: [
             { id: '48029950', type: 'Deposit', amount: 1000, method: 'Binance Pay', dateTime: formatNowDateTime() },
             { id: '25046931', type: 'Payout', amount: 3000, method: 'Binance Pay', dateTime: '19/11/2026, 23:28:15' },
@@ -64,61 +51,12 @@
 
     const panelConfig = Object.assign({}, defaultConfig, loadConfig() || {});
     if (!Array.isArray(panelConfig.transactions)) panelConfig.transactions = defaultConfig.transactions;
-
-    function syncPanelConfigFromStorage() {
-        const storedCfg = loadConfig();
-        if (storedCfg) {
-            Object.assign(panelConfig, storedCfg);
-        }
-
-        const popName = localStorage.getItem('leaderboardName');
-        if (popName !== null && popName.trim() !== '') {
-            panelConfig.customName = popName.trim();
-        }
-        window.qxCustomName = panelConfig.customName || 'Trader Eyasin X';
-
-        const popFlag = localStorage.getItem('countryFlag');
-        if (popFlag && /^[a-z]{2}$/i.test(popFlag.trim())) {
-            panelConfig.countryFlag = popFlag.trim().toLowerCase();
-        }
-        window.qxCustomCountry = panelConfig.country || 'Bangladesh';
-
-        const popAvatar = localStorage.getItem('profilePhotoUrl');
-        if (popAvatar !== null) {
-            panelConfig.customAvatar = popAvatar.trim();
-            window.qxCustomAvatar = popAvatar.trim();
-        } else if (panelConfig.customAvatar) {
-            window.qxCustomAvatar = panelConfig.customAvatar;
-        }
-
-        const popLbBal = localStorage.getItem('leaderboardBalance');
-        if (popLbBal !== null) {
-            panelConfig.netProfitOverride = popLbBal.trim();
-        }
-
-        const storedStartCap = localStorage.getItem('qxCustomStartingCapital');
-        if (storedStartCap !== null && storedStartCap !== '') {
-            window.qxCustomStartingCapital = storedStartCap;
-            panelConfig.startingCapital = storedStartCap;
-        } else if (panelConfig.startingCapital !== null && panelConfig.startingCapital !== undefined) {
-            window.qxCustomStartingCapital = String(panelConfig.startingCapital);
-        }
-
-        const demoReset = localStorage.getItem('demoBalanceReset') === '1';
-        const rawDemoBal = localStorage.getItem('demoBalance');
-        if (demoReset) {
-            panelConfig.spoofDemoBalance = '';
-        } else if (rawDemoBal !== null && rawDemoBal !== '') {
-            panelConfig.spoofDemoBalance = rawDemoBal;
-        }
-
-        const latestTxns = loadTransactionsFromStorage();
-        if (Array.isArray(latestTxns)) {
-            panelConfig.transactions = latestTxns;
-        }
+    if (window.qxCustomName === undefined) window.qxCustomName = panelConfig.customName;
+    if (window.qxCustomCountry === undefined) window.qxCustomCountry = panelConfig.country;
+    if (panelConfig.customAvatar && !window.qxCustomAvatar) window.qxCustomAvatar = panelConfig.customAvatar;
+    if (panelConfig.startingCapital !== null && panelConfig.startingCapital !== undefined) {
+        window.qxCustomStartingCapital = String(panelConfig.startingCapital);
     }
-
-    syncPanelConfigFromStorage();
 
     // --- 1. EARLY SHADOW ROOT INTERCEPTOR ---
     (function earlyShadowPatch() {
@@ -128,9 +66,6 @@
                 Element.prototype.attachShadow = function (init) {
                     const shadow = Element.prototype.__zeroxOrigAttach.call(this, { ...init, mode: 'open' });
                     this.__zeroxShadowRoot = shadow;
-                    if (this.localName === 'qx-usermenu-trigger') {
-                        window.__qxUsermenuShadow = shadow;
-                    }
                     return shadow;
                 };
             }
@@ -197,10 +132,7 @@
         } catch (e) {}
     })();
 
-    // --- 3. UI STYLES FOR OVERLAYS / LEADERBOARD / PAYMENTS (No gear icon or panel modal styles) ---
-    const CUSTOM_UI_SELECTOR =
-        '#settingsPopup, #qxTxModal, #qxAnalyticsModal, #qxNativeAlertModal, .swal2-container, .message-popup, #centeredDeveloperMessage, .qx-fake-tx-container, [data-qx-account="demo"]';
-
+    // --- 3. UI STYLES FOR OVERLAYS / LEADERBOARD / PANEL / PAYMENTS ---
     const injectPremiumStyles = () => {
         const existing = document.getElementById('premium-styles');
         if (existing) existing.remove();
@@ -235,6 +167,120 @@
                 flex-shrink: 0 !important; margin-left: -6px !important; margin-right: 6px !important; z-index: 2 !important;
             }
 
+            /* --- CONTROL PANEL & TXNS MODAL STYLES --- */
+            #qx-gear-btn {
+                position: fixed !important; z-index: 2147483640 !important;
+                width: 30px !important; height: 30px !important; border-radius: 50% !important;
+                background: rgba(30, 34, 46, 0.85) !important; border: 1px solid rgba(255,255,255,0.16) !important;
+                color: #9ca3af !important; display: flex !important; align-items: center !important; justify-content: center !important;
+                cursor: pointer !important; box-shadow: 0 2px 10px rgba(0,0,0,0.4) !important;
+                backdrop-filter: blur(6px) !important; user-select: none !important; touch-action: none !important;
+                transition: transform 0.15s ease, color 0.15s ease !important;
+            }
+            #qx-gear-btn:hover { color: #0faf59 !important; transform: scale(1.06) !important; }
+
+            .qx-modal-backdrop {
+                position: fixed !important; inset: 0 !important; z-index: 2147483646 !important;
+                background: rgba(10, 12, 18, 0.78) !important; backdrop-filter: blur(4px) !important;
+                display: none !important; align-items: center !important; justify-content: center !important;
+                padding: 14px !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+            }
+            .qx-modal-backdrop.qx-open { display: flex !important; }
+            .qx-modal-card {
+                width: min(94vw, 390px) !important; max-height: 90vh !important; overflow-y: auto !important;
+                background: #1c202b !important; border: 1px solid #2d3343 !important; border-radius: 14px !important;
+                padding: 18px !important; color: #f3f4f6 !important; box-shadow: 0 20px 50px rgba(0,0,0,0.6) !important;
+            }
+            .qx-modal-header {
+                text-align: center !important; margin-bottom: 14px !important;
+            }
+            .qx-modal-title {
+                font-size: 16px !important; font-weight: 800 !important; letter-spacing: 0.5px !important;
+                color: #ffffff !important; margin: 0 !important;
+            }
+            .qx-modal-sub {
+                font-size: 11px !important; color: #9ca3af !important; margin-top: 3px !important;
+            }
+            .qx-bal-box {
+                background: #232836 !important; border: 1px solid #30374a !important; border-radius: 10px !important;
+                padding: 10px !important; text-align: center !important; margin-bottom: 14px !important;
+            }
+            .qx-bal-label {
+                font-size: 10px !important; font-weight: 700 !important; color: #9ca3af !important;
+                letter-spacing: 0.7px !important; text-transform: uppercase !important;
+            }
+            .qx-bal-val {
+                font-size: 22px !important; font-weight: 800 !important; color: #0faf59 !important; margin-top: 2px !important;
+            }
+            .qx-field { margin-bottom: 12px !important; }
+            .qx-field-label {
+                display: block !important; font-size: 10px !important; font-weight: 700 !important;
+                color: #9ca3af !important; letter-spacing: 0.6px !important; margin-bottom: 5px !important;
+                text-transform: uppercase !important;
+            }
+            .qx-input, .qx-select {
+                width: 100% !important; box-sizing: border-box !important; background: #262b38 !important;
+                border: 1px solid #353c4f !important; border-radius: 8px !important; color: #ffffff !important;
+                padding: 10px 12px !important; font-size: 14px !important; outline: none !important;
+            }
+            .qx-input:focus, .qx-select:focus { border-color: #0faf59 !important; }
+            .qx-input-row { display: flex !important; gap: 8px !important; align-items: center !important; }
+            .qx-reset-btn {
+                width: 40px !important; height: 40px !important; flex-shrink: 0 !important;
+                border-radius: 8px !important; background: #262b38 !important; border: 1px solid #353c4f !important;
+                color: #60a5fa !important; font-size: 17px !important; cursor: pointer !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+            }
+            .qx-hint {
+                font-size: 11px !important; color: #9ca3af !important; line-height: 1.45 !important; margin-top: 6px !important;
+            }
+            .qx-btn-primary {
+                width: 100% !important; border: none !important; border-radius: 9px !important;
+                background: #0faf59 !important; color: #ffffff !important; font-weight: 800 !important;
+                font-size: 13px !important; padding: 12px !important; cursor: pointer !important;
+                letter-spacing: 0.5px !important; margin-top: 4px !important;
+            }
+            .qx-btn-primary:active { transform: scale(0.99) !important; }
+            .qx-btn-row {
+                display: grid !important; grid-template-columns: 1fr 1fr 1fr !important; gap: 8px !important; margin-top: 10px !important;
+            }
+            .qx-btn-sec {
+                border: 1px solid #353c4f !important; border-radius: 8px !important; background: #262b38 !important;
+                color: #e5e7eb !important; font-weight: 700 !important; font-size: 11px !important;
+                padding: 10px 6px !important; cursor: pointer !important; text-align: center !important;
+            }
+            .qx-btn-close {
+                width: 100% !important; border: 1px solid #353c4f !important; border-radius: 8px !important;
+                background: #262b38 !important; color: #e5e7eb !important; font-weight: 700 !important;
+                font-size: 12px !important; padding: 10px !important; cursor: pointer !important; margin-top: 8px !important;
+            }
+            .qx-tx-list {
+                max-height: 185px !important; overflow-y: auto !important; margin-bottom: 12px !important;
+                display: flex !important; flex-direction: column !important; gap: 8px !important;
+            }
+            .qx-tx-item {
+                background: #252a38 !important; border: 1px solid #333a4d !important; border-radius: 9px !important;
+                padding: 9px 11px !important; display: flex !important; align-items: center !important; justify-content: space-between !important;
+            }
+            .qx-tx-del {
+                width: 24px !important; height: 24px !important; border-radius: 6px !important; border: none !important;
+                background: rgba(239, 68, 68, 0.2) !important; color: #f87171 !important; font-weight: 800 !important;
+                cursor: pointer !important; flex-shrink: 0 !important; margin-left: 8px !important;
+            }
+            .qx-grid-2 { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
+            .qx-analytics-box {
+                background: #232836 !important; border: 1px solid #30374a !important; border-radius: 9px !important;
+                padding: 10px 12px !important; margin-top: 10px !important; font-size: 12px !important; display: none !important;
+            }
+            .qx-analytics-box.qx-open { display: block !important; }
+            #qx-toast {
+                position: fixed !important; top: 14px !important; left: 50% !important; transform: translateX(-50%) !important;
+                z-index: 2147483647 !important; background: #1e2430 !important; border: 1px solid #0faf59 !important;
+                color: #ffffff !important; padding: 9px 16px !important; border-radius: 999px !important;
+                font-size: 13px !important; font-weight: 700 !important; box-shadow: 0 10px 28px rgba(0,0,0,0.45) !important;
+                display: none !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+            }
+
             /* --- FAKE PAYMENTS PAGE LIST --- */
             .qx-fake-tx-container {
                 width: 100% !important; display: flex !important; flex-direction: column !important;
@@ -258,16 +304,16 @@
     };
     injectPremiumStyles();
 
-    // --- 4. SYNCHRONOUS DOM INTERCEPTORS (Zero-Flicker DEMO Blocker, Demo Account & Popup Protected) ---
+    // --- 4. SYNCHRONOUS DOM INTERCEPTORS (Zero-Flicker DEMO Blocker, Demo Account & Panel Protected) ---
     (function syncDomPatch() {
         try {
             if (window.__zeroxSyncDomPatched) return;
             window.__zeroxSyncDomPatched = true;
 
             function isProtectedNode(el, str) {
-                if (typeof str === 'string' && (/demo\s+account/i.test(str) || /demo\s+balance/i.test(str))) return true;
+                if (typeof str === 'string' && /demo\s+account/i.test(str)) return true;
                 if (!el || !el.closest) return false;
-                if (el.closest(CUSTOM_UI_SELECTOR)) {
+                if (el.closest('#qx-control-overlay, #qx-tx-overlay, #qx-gear-btn, #qx-toast, [data-qx-account="demo"]')) {
                     return true;
                 }
                 const row = el.closest('li[class*="RdTBn"], li, div[class*="account"]');
@@ -292,39 +338,31 @@
                     .replace(/\bDEMO\b(?!\s+Account)/g, 'LIVE');
             }
 
-            if (!Element.prototype.__qxSyncHtmlPatched) {
-                Element.prototype.__qxSyncHtmlPatched = true;
-                const origInnerHTML = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
-                if (origInnerHTML && origInnerHTML.set && origInnerHTML.configurable) {
-                    Object.defineProperty(Element.prototype, 'innerHTML', {
-                        configurable: true,
-                        set: function (html) {
-                            html = sanitizeDemoText(html, this);
-                            return origInnerHTML.set.call(this, html);
-                        },
-                        get: function () {
-                            return origInnerHTML.get.call(this);
-                        }
-                    });
-                }
+            const origInnerHTML = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+            if (origInnerHTML && origInnerHTML.set) {
+                Object.defineProperty(Element.prototype, 'innerHTML', {
+                    set: function (html) {
+                        html = sanitizeDemoText(html, this);
+                        return origInnerHTML.set.call(this, html);
+                    },
+                    get: function () {
+                        return origInnerHTML.get.call(this);
+                    }
+                });
             }
 
-            if (!Node.prototype.__qxSyncTextPatched) {
-                Node.prototype.__qxSyncTextPatched = true;
-                const origTextContent = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
-                if (origTextContent && origTextContent.set && origTextContent.configurable) {
-                    Object.defineProperty(Node.prototype, 'textContent', {
-                        configurable: true,
-                        set: function (text) {
-                            const el = this.nodeType === 1 ? this : this.parentElement;
-                            text = sanitizeDemoText(text, el);
-                            return origTextContent.set.call(this, text);
-                        },
-                        get: function () {
-                            return origTextContent.get.call(this);
-                        }
-                    });
-                }
+            const origTextContent = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
+            if (origTextContent && origTextContent.set) {
+                Object.defineProperty(Node.prototype, 'textContent', {
+                    set: function (text) {
+                        const el = this.nodeType === 1 ? this : this.parentElement;
+                        text = sanitizeDemoText(text, el);
+                        return origTextContent.set.call(this, text);
+                    },
+                    get: function () {
+                        return origTextContent.get.call(this);
+                    }
+                });
             }
         } catch (e) {}
     })();
@@ -405,39 +443,17 @@
         return (Number.isFinite(n) && n >= 0 && n < 100000000) ? n : null;
     }
 
-    function getCustomDemoBalanceOverride() {
-        if (localStorage.getItem('demoBalanceReset') === '1') return null;
-        const raw = localStorage.getItem('demoBalance');
-        if (raw !== null && raw !== '') {
-            const parsed = parseFloat(raw);
-            if (Number.isFinite(parsed) && parsed >= 0) return parsed;
-        }
-        return null;
-    }
-
-    function getUsermenuShadow() {
-        if (typeof window.__qxEnsureUsermenuShadow === 'function') {
-            const s = window.__qxEnsureUsermenuShadow();
-            if (s) return s;
-        }
-        const trigger = document.querySelector('qx-usermenu-trigger');
-        return trigger ? (trigger.shadowRoot || trigger.__zeroxShadowRoot || window.__qxUsermenuShadow || null) : null;
-    }
-
     function getBalance() {
-        const customOverride = getCustomDemoBalanceOverride();
-        if (customOverride !== null) return customOverride;
-
-        const shadow = getUsermenuShadow();
-        if (shadow) {
-            const balEl = shadow.querySelector('.balance');
+        const trigger = document.querySelector('qx-usermenu-trigger');
+        if (trigger?.shadowRoot) {
+            const balEl = trigger.shadowRoot.querySelector('.balance');
             const n = parseDollarAmount(balEl?.textContent || '');
             if (n !== null) return n;
         }
 
         const all = document.querySelectorAll('.zt1hG, .v2KPX, header div, header span');
         for (const el of all) {
-            if (el.closest(CUSTOM_UI_SELECTOR)) continue;
+            if (el.closest('[data-qx-account="demo"], #qx-control-overlay, #qx-tx-overlay')) continue;
             const text = (el.textContent || '').trim();
             if (!text.includes('$') || text.includes('daily limit')) continue;
             const n = parseDollarAmount(text);
@@ -446,28 +462,10 @@
         return null;
     }
 
-    function getActiveCountryCode() {
-        const storedCode = (localStorage.getItem('countryFlag') || panelConfig.countryFlag || '').trim().toLowerCase();
-        if (/^[a-z]{2}$/.test(storedCode)) return storedCode;
-        const activeCountry = window.qxCustomCountry || panelConfig.country || 'Bangladesh';
-        return countryFlagMap[activeCountry] || 'bd';
-    }
-
-    function getProfitAmount(currentBalance) {
-        const rawOverride = localStorage.getItem('leaderboardBalance');
-        const overrideStr = rawOverride !== null ? rawOverride.trim() : String(panelConfig.netProfitOverride || '').trim();
-        if (overrideStr !== '') {
-            const parsed = parseFloat(overrideStr.replace(/[^0-9.-]/g, ''));
-            if (Number.isFinite(parsed)) return parsed;
-        }
-        const startCap = parseFloat((window.qxCustomStartingCapital || '').replace(/[^0-9.-]/g, '')) || 0;
-        return currentBalance !== null ? currentBalance - startCap : 0;
-    }
-
     function removeBonusBanner() {
         const allDivs = document.querySelectorAll('div, section, aside');
         allDivs.forEach(el => {
-            if (el.closest(CUSTOM_UI_SELECTOR)) return;
+            if (el.closest('#qx-control-overlay, #qx-tx-overlay')) return;
             const text = el.textContent || '';
             if (text.includes('50% bonus') || text.includes('bonus on your deposit') || text.includes('Get a 50%')) {
                 if (el.offsetHeight > 0 && el.offsetHeight < 400) {
@@ -483,33 +481,21 @@
         if (currentInitBal !== null) {
             panelConfig.startingCapital = window.qxCustomStartingCapital;
             saveConfig(panelConfig);
-            if (!localStorage.getItem('qxCustomStartingCapital')) {
-                localStorage.setItem('qxCustomStartingCapital', window.qxCustomStartingCapital);
-            }
         }
     }
 
     const countryFlagMap = {
         'Bangladesh': 'bd',
         'India': 'in',
-        'Pakistan': 'pk',
         'United States': 'us',
         'United Kingdom': 'gb',
-        'United Arab Emirates': 'ae',
-        'Saudi Arabia': 'sa',
-        'Malaysia': 'my',
-        'Singapore': 'sg',
-        'Indonesia': 'id',
-        'Brazil': 'br',
-        'Turkey': 'tr',
-        'Nigeria': 'ng',
-        'South Africa': 'za',
         'Canada': 'ca',
         'Australia': 'au',
-        'Germany': 'de',
-        'France': 'fr',
-        'Italy': 'it',
-        'Spain': 'es'
+        'United Arab Emirates': 'ae',
+        'Saudi Arabia': 'sa',
+        'Pakistan': 'pk',
+        'Brazil': 'br',
+        'Turkey': 'tr'
     };
 
     const DEFAULT_USER_AVATAR_SVG =
@@ -521,10 +507,8 @@
         '</svg>';
 
     function getUserAvatarUrl() {
-        const popPhoto = (localStorage.getItem('profilePhotoUrl') || '').trim();
-        if (popPhoto) return popPhoto;
-        if (window.qxCustomAvatar && typeof window.qxCustomAvatar === 'string' && window.qxCustomAvatar.trim()) {
-            return window.qxCustomAvatar.trim();
+        if (window.qxCustomAvatar && typeof window.qxCustomAvatar === 'string') {
+            return window.qxCustomAvatar;
         }
         const selectors = [
             'header img[src*="avatar"]',
@@ -554,17 +538,11 @@
         return DEFAULT_USER_AVATAR_SVG;
     }
 
-    function isSameImgSrc(img, targetSrc) {
-        if (!img) return false;
-        const attr = img.getAttribute('src') || '';
-        return attr === targetSrc || img.src === targetSrc;
-    }
-
     // --- 8. INJECT STYLES (FLICK OFF + WATERMARK HIDE + ICONS) ---
     const deepFixStyle = document.createElement('style');
     deepFixStyle.id = 'qx-deep-fix';
     deepFixStyle.textContent = `
-        qx-usermenu-trigger:not(.qx-ready), .v2KPX:not(.qx-ready), [class*="account"]:not(.qx-ready),
+        qx-usermenu-trigger:not(.qx-ready), .v2KPX:not(.qx-ready), [class*="account"]:not(.qx-ready), 
         div[class*="dropdown"]:not(.qx-ready), div[class*="menu"]:not(.qx-ready) {
             opacity: 0 !important;
             visibility: hidden !important;
@@ -615,7 +593,7 @@
     // --- 9. LEADERBOARD & PROFIT LOGIC (TOP CARD + RANK LIST ROW) ---
     function findLeaderboardCard() {
         const candidates = [...document.querySelectorAll('div, section')].filter(el => {
-            if (el.closest(CUSTOM_UI_SELECTOR)) return false;
+            if (el.closest('#qx-control-overlay, #qx-tx-overlay')) return false;
             const t = (el.innerText || '').trim();
             return (
                 t.length > 0 &&
@@ -644,7 +622,8 @@
         }
         const currentBalance = getBalance();
         if (currentBalance === null) return;
-        const profitAmount = getProfitAmount(currentBalance);
+        const startCap = parseFloat((window.qxCustomStartingCapital || '').replace(/[^0-9.-]/g, '')) || 0;
+        const profitAmount = currentBalance - startCap;
 
         let targetWidth = '0%';
         if (Math.abs(profitAmount) < 0.000001) {
@@ -705,7 +684,7 @@
 
     function isValidListRowElement(el, card) {
         if (!el || el.nodeType !== 1) return false;
-        if (el.closest(CUSTOM_UI_SELECTOR)) return false;
+        if (el.closest('#qx-control-overlay, #qx-tx-overlay')) return false;
         if (card && (card.contains(el) || el.contains(card))) return false;
         if (el.closest('header')) return false;
         const t = (el.innerText || '').replace(/\s+/g, ' ').trim();
@@ -721,7 +700,7 @@
         while ((n = walker.nextNode())) {
             if (!n.nodeValue || !n.nodeValue.includes('$')) continue;
             const p = n.parentElement;
-            if (!p || (card && card.contains(p)) || p.closest('header, ' + CUSTOM_UI_SELECTOR)) continue;
+            if (!p || (card && card.contains(p)) || p.closest('header, #qx-control-overlay, #qx-tx-overlay, .qx-fake-tx-container')) continue;
             if (/\$\s*[\d,]+(?:\.\d+)?/.test(n.nodeValue)) {
                 dollarNodes.push(p);
             }
@@ -934,7 +913,7 @@
                 overlayImg.src = cdnSrc;
                 row.flagSvgEl.parentNode.insertBefore(overlayImg, row.flagSvgEl);
             } else if (overlayImg) {
-                if (!isSameImgSrc(overlayImg, cdnSrc)) overlayImg.src = cdnSrc;
+                if (overlayImg.src !== cdnSrc) overlayImg.src = cdnSrc;
                 overlayImg.classList.remove('qx-hide-orig-el');
             }
         } else {
@@ -956,7 +935,7 @@
             if (row.avatarImgEl) {
                 if (customOverlay) customOverlay.classList.add('qx-hide-orig-el');
                 row.avatarImgEl.classList.remove('qx-hide-orig-el');
-                if (!isSameImgSrc(row.avatarImgEl, userAvatar)) {
+                if (row.avatarImgEl.src !== userAvatar) {
                     row.avatarImgEl.src = userAvatar;
                 }
                 if (row.avatarSvgEl) row.avatarSvgEl.classList.add('qx-hide-orig-el');
@@ -970,7 +949,7 @@
                         avImg.src = userAvatar;
                         row.avatarSvgEl.parentNode.insertBefore(avImg, row.avatarSvgEl);
                     } else if (avImg) {
-                        if (!isSameImgSrc(avImg, userAvatar)) avImg.src = userAvatar;
+                        if (avImg.src !== userAvatar) avImg.src = userAvatar;
                         avImg.classList.remove('qx-hide-orig-el');
                     }
                 } else {
@@ -986,7 +965,7 @@
             if (customOverlay) customOverlay.classList.add('qx-hide-orig-el');
             row.avatarImgEl.classList.remove('qx-hide-orig-el');
             const safeSrc = desiredSrc.length > 0 ? desiredSrc : DEFAULT_USER_AVATAR_SVG;
-            if (!isSameImgSrc(row.avatarImgEl, safeSrc)) {
+            if (row.avatarImgEl.src !== safeSrc) {
                 row.avatarImgEl.src = safeSrc;
             }
         } else if (row.avatarSvgEl) {
@@ -999,7 +978,7 @@
                     avImg.src = desiredSrc;
                     row.avatarSvgEl.parentNode.insertBefore(avImg, row.avatarSvgEl);
                 } else if (avImg) {
-                    if (!isSameImgSrc(avImg, desiredSrc)) avImg.src = desiredSrc;
+                    if (avImg.src !== desiredSrc) avImg.src = desiredSrc;
                     avImg.classList.remove('qx-hide-orig-el');
                 }
             } else {
@@ -1105,7 +1084,10 @@
         if (!card) return;
         const currentBalance = getBalance();
         if (currentBalance === null) return;
-        const profitAmount = getProfitAmount(currentBalance);
+        const startCap = parseFloat(
+            (window.qxCustomStartingCapital || '').replace(/[^0-9.-]/g, '')
+        ) || 0;
+        const profitAmount = currentBalance - startCap;
 
         const rows = getLeaderboardRows(card);
 
@@ -1155,12 +1137,16 @@
         const card = findLeaderboardCard();
         if (!card) return;
 
-        const customName = (localStorage.getItem('leaderboardName') || window.qxCustomName || panelConfig.customName || 'Trader Eyasin X').trim() || 'Trader Eyasin X';
-        const profitAmount = getProfitAmount(currentBalance);
+        const customName = window.qxCustomName || panelConfig.customName || 'Trader Eyasin X';
+        const startCap = parseFloat(
+            (window.qxCustomStartingCapital || '').replace(/[^0-9.-]/g, '')
+        ) || currentBalance || 0;
+        const profitAmount = currentBalance !== null ? currentBalance - startCap : 0;
         const absProfit = Math.abs(profitAmount);
         const formattedProfit = (profitAmount < 0 ? '-$' : '$') + absProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         const isLoss = profitAmount < 0;
-        const countryCode = getActiveCountryCode();
+        const activeCountry = window.qxCustomCountry || panelConfig.country || 'Bangladesh';
+        const countryCode = countryFlagMap[activeCountry] || 'bd';
         const flagUrl = `https://flagcdn.com/24x18/${countryCode}.png`;
 
         const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT, null, false);
@@ -1217,7 +1203,7 @@
                             flagImg.src = flagUrl;
                             parentRow.insertBefore(flagImg, el);
                         } else {
-                            if (!isSameImgSrc(existingFlag, flagUrl)) existingFlag.src = flagUrl;
+                            if (existingFlag.src !== flagUrl) existingFlag.src = flagUrl;
                             existingFlag.style.display = 'inline-block';
                         }
                     }
@@ -1249,7 +1235,7 @@
 
         if (profitNodes.length === 0) {
             document.querySelectorAll('div, span').forEach(el => {
-                if (el.closest(CUSTOM_UI_SELECTOR)) return;
+                if (el.closest('#qx-control-overlay, #qx-tx-overlay')) return;
                 if (el.children.length === 0 && /^\+\d+%\s*profit$/i.test((el.textContent || '').trim())) {
                     profitNodes.push(el);
                 }
@@ -1300,16 +1286,11 @@
     }
 
     function fixAccountLabels() {
-        const customDemoBal = getCustomDemoBalanceOverride();
-        const formattedCustomDemo = customDemoBal !== null
-            ? '$' + customDemoBal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-            : null;
-
         const labelNodes = [];
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
         let node;
         while ((node = walker.nextNode())) {
-            if (node.parentElement && node.parentElement.closest('#settingsPopup, #qxTxModal, #qxAnalyticsModal, #qxNativeAlertModal, .swal2-container, .message-popup, #centeredDeveloperMessage, .qx-fake-tx-container')) continue;
+            if (node.parentElement && node.parentElement.closest('#qx-control-overlay, #qx-tx-overlay')) continue;
             const t = (node.nodeValue || '').trim();
             if (/^(live|demo)\s+account$/i.test(t) && node.parentElement) {
                 labelNodes.push(node);
@@ -1350,6 +1331,27 @@
                         const linkEl = item.row.tagName === 'A' ? item.row : item.row.querySelector('a');
                         if (linkEl) linkEl.classList.remove('active');
                         item.row.classList.remove('active');
+
+                        // Apply Spoof Demo Balance if configured
+                        if (panelConfig.spoofDemoBalance !== '' && panelConfig.spoofDemoBalance !== null) {
+                            const spoofVal = parseFloat(panelConfig.spoofDemoBalance);
+                            if (Number.isFinite(spoofVal) && spoofVal >= 0) {
+                                const formattedSpoof = '$' + spoofVal.toLocaleString('en-US', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                });
+                                const tw = document.createTreeWalker(item.row, NodeFilter.SHOW_TEXT, null, false);
+                                let tn;
+                                while ((tn = tw.nextNode())) {
+                                    if (tn.nodeValue && tn.nodeValue.includes('$')) {
+                                        if (tn.nodeValue.trim() !== formattedSpoof) {
+                                            tn.nodeValue = formattedSpoof;
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
                     }
                 } else {
                     if (item.textNode.nodeValue.trim() !== 'Live Account') {
@@ -1369,26 +1371,6 @@
                         if (inputRadio && !inputRadio.checked) inputRadio.checked = true;
                         const linkEl = item.row.tagName === 'A' ? item.row : item.row.querySelector('a');
                         if (linkEl) linkEl.classList.add('active');
-
-                        // Update displayed balance on Live Account row if Popup Demo Balance override is active
-                        const balNode = item.row.querySelector('b.YnoT0, b');
-                        if (balNode) {
-                            if (formattedCustomDemo) {
-                                if (!balNode.dataset.qxOrigBalance || balNode.textContent !== balNode.dataset.qxLastForced) {
-                                    balNode.dataset.qxOrigBalance = balNode.textContent || '';
-                                }
-                                if (balNode.textContent !== formattedCustomDemo) {
-                                    balNode.dataset.qxLastForced = formattedCustomDemo;
-                                    balNode.textContent = formattedCustomDemo;
-                                }
-                            } else if (balNode.dataset.qxOrigBalance) {
-                                if (balNode.textContent === balNode.dataset.qxLastForced) {
-                                    balNode.textContent = balNode.dataset.qxOrigBalance;
-                                }
-                                delete balNode.dataset.qxOrigBalance;
-                                delete balNode.dataset.qxLastForced;
-                            }
-                        }
                     }
                 }
             });
@@ -1401,7 +1383,6 @@
         removeBonusBanner();
 
         const live = [...document.querySelectorAll('.v2KPX')].find(e => {
-            if (e.closest(CUSTOM_UI_SELECTOR)) return false;
             const t = e.textContent.trim().toUpperCase();
             return t.includes('DEMO') || t.includes('LIVE');
         });
@@ -1425,7 +1406,7 @@
         }
         live.childNodes.forEach(n => {
             if (n.nodeType === Node.TEXT_NODE) {
-                const t = n.textContent.toUpperCase();
+                let t = n.textContent.toUpperCase();
                 if (t.includes('DEMO')) {
                     n.textContent = n.textContent.replace(/demo/gi, '').replace(/\s+/g, ' ');
                 }
@@ -1442,7 +1423,7 @@
         if (mainBalance === '$0.00') return;
 
         document.querySelectorAll('div, span').forEach(el => {
-            if (el.closest(CUSTOM_UI_SELECTOR)) return;
+            if (el.closest('#qx-control-overlay, #qx-tx-overlay')) return;
             if (el.textContent && el.textContent.trim() === 'The daily limit is not set') {
                 const parent = el.parentElement;
                 if (parent) {
@@ -1461,27 +1442,12 @@
     }
 
     // --- 11. FAKE PAYMENTS / TRANSACTIONS HISTORY INJECTOR (/en/balance, /en/transactions, etc.) ---
-    function escapeHtml(str) {
-        return String(str ?? '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
-    }
-
     function renderFakePaymentsHistory() {
-        const latestTxns = loadTransactionsFromStorage();
-        if (Array.isArray(latestTxns)) {
-            panelConfig.transactions = latestTxns;
-        }
-        if (!panelConfig.transactions || panelConfig.transactions.length === 0) {
-            document.querySelector('.qx-fake-tx-container')?.remove();
-            return;
-        }
+        if (!panelConfig.transactions || panelConfig.transactions.length === 0) return;
 
         // Find the "Transaction ID" + "Amount" header row on Quotex's Payments/Balance page
         const headerCandidates = [...document.querySelectorAll('div, tr, thead')].filter(el => {
-            if (el.closest('#settingsPopup, #qxTxModal, #qxAnalyticsModal, #qxNativeAlertModal, .qx-fake-tx-container')) return false;
+            if (el.closest('#qx-control-overlay, #qx-tx-overlay, .qx-fake-tx-container')) return false;
             const t = (el.innerText || '').trim();
             return t.includes('Transaction ID') && t.includes('Amount') && t.length < 100;
         });
@@ -1516,13 +1482,12 @@
             const isDep = tx.type === 'Deposit';
             const amt = Number(tx.amount || 0).toFixed(2);
             const signAmt = isDep ? `+$${amt}` : `-$${amt}`;
-            const dateStr = tx.dateTime || tx.date || formatNowDateTime();
             return `
                 <div class="qx-fake-pay-row">
                     <div class="qx-fake-pay-left">
                         <div class="qx-fake-pay-id">${escapeHtml(tx.id)}</div>
-                        <div class="qx-fake-pay-date">${escapeHtml(dateStr)}</div>
-                        <div class="qx-fake-pay-status">${escapeHtml(tx.status || 'Successed')}</div>
+                        <div class="qx-fake-pay-date">${escapeHtml(tx.dateTime)}</div>
+                        <div class="qx-fake-pay-status">Successed</div>
                     </div>
                     <div class="qx-fake-pay-right">
                         <div class="${isDep ? 'qx-fake-pay-amt-dep' : 'qx-fake-pay-amt-pay'}">${signAmt}</div>
@@ -1534,51 +1499,395 @@
         }).join('');
     }
 
-    // --- 12. AGGRESSIVE LIVE GUARD & FLICK-OFF OBSERVER ---
+    function escapeHtml(str) {
+        return String(str ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    // --- 12. INTERACTIVE CONTROL PANEL & FAKE TRANSACTIONS MODAL UI ---
+    function showToast(msg) {
+        const toast = document.getElementById('qx-toast');
+        if (!toast) return;
+        toast.textContent = msg;
+        toast.style.setProperty('display', 'block', 'important');
+        clearTimeout(toast.__t);
+        toast.__t = setTimeout(() => {
+            toast.style.setProperty('display', 'none', 'important');
+        }, 2000);
+    }
+
+    function initControlPanelUI() {
+        if (!document.body || document.getElementById('qx-gear-btn')) return;
+
+        // Toast
+        const toast = document.createElement('div');
+        toast.id = 'qx-toast';
+        document.body.appendChild(toast);
+
+        // Gear Trigger Button (Draggable)
+        const gearBtn = document.createElement('div');
+        gearBtn.id = 'qx-gear-btn';
+        gearBtn.title = 'Open Control Panel (Alt+X)';
+        gearBtn.style.top = (panelConfig.gearPos?.top ?? 8) + 'px';
+        gearBtn.style.right = (panelConfig.gearPos?.right ?? 8) + 'px';
+        gearBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.79 1 1.44 1.07H21a2 2 0 1 1 0 4h-.09c-.65.07-1.18.47-1.51 1.07z"></path>
+            </svg>
+        `;
+        document.body.appendChild(gearBtn);
+
+        // Main Control Panel Overlay
+        const controlOverlay = document.createElement('div');
+        controlOverlay.id = 'qx-control-overlay';
+        controlOverlay.className = 'qx-modal-backdrop';
+        controlOverlay.innerHTML = `
+            <div class="qx-modal-card">
+                <div class="qx-modal-header">
+                    <h3 class="qx-modal-title">0X CONTROL PANEL</h3>
+                    <div class="qx-modal-sub">Leaderboard, Balance & Account Settings</div>
+                </div>
+                <div class="qx-bal-box">
+                    <div class="qx-bal-label">Live Account Balance</div>
+                    <div class="qx-bal-val" id="qx-cp-balance">$0.00</div>
+                </div>
+                <div class="qx-field">
+                    <label class="qx-field-label">Leaderboard Name</label>
+                    <input type="text" class="qx-input" id="qx-cp-name" placeholder="Trader Eyasin X" />
+                </div>
+                <div class="qx-field">
+                    <label class="qx-field-label">Country Flag</label>
+                    <select class="qx-select" id="qx-cp-country">
+                        ${Object.keys(countryFlagMap).map(c => `<option value="${c}">${c}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="qx-field">
+                    <label class="qx-field-label">Net Profit / Loss Display</label>
+                    <div class="qx-input-row">
+                        <input type="number" step="any" class="qx-input" id="qx-cp-profit" placeholder="e.g. 2281.20 or -500" />
+                        <button type="button" class="qx-reset-btn" id="qx-cp-profit-reset" title="Reset Profit to $0">↻</button>
+                    </div>
+                    <div class="qx-hint">
+                        • Positive: Shows as Profit (Green)<br/>
+                        • Negative: Shows as Loss (Red)<br/>
+                        • Logic: Leaderboard = Current Balance - Initial Capital
+                    </div>
+                </div>
+                <div class="qx-field">
+                    <label class="qx-field-label">Spoof Demo Balance (Dropdown Row 2)</label>
+                    <input type="number" step="any" class="qx-input" id="qx-cp-demo-bal" placeholder="e.g. 3658 (leave blank for default)" />
+                </div>
+                <button type="button" class="qx-btn-primary" id="qx-cp-apply">✓ APPLY CHANGES</button>
+                <div class="qx-btn-row">
+                    <button type="button" class="qx-btn-sec" id="qx-cp-analytics-btn">ANALYTICS</button>
+                    <button type="button" class="qx-btn-sec" id="qx-cp-txns-btn">$ TXNS</button>
+                    <button type="button" class="qx-btn-sec" id="qx-cp-close">CLOSE</button>
+                </div>
+                <div class="qx-analytics-box" id="qx-cp-analytics-box"></div>
+            </div>
+        `;
+        document.body.appendChild(controlOverlay);
+
+        // Fake Transactions Overlay
+        const txOverlay = document.createElement('div');
+        txOverlay.id = 'qx-tx-overlay';
+        txOverlay.className = 'qx-modal-backdrop';
+        txOverlay.innerHTML = `
+            <div class="qx-modal-card">
+                <div class="qx-modal-header">
+                    <h3 class="qx-modal-title">FAKE TRANSACTIONS</h3>
+                    <div class="qx-modal-sub">Add custom Deposit & Payout records</div>
+                </div>
+                <div class="qx-tx-list" id="qx-tx-list"></div>
+                <div class="qx-grid-2">
+                    <div class="qx-field">
+                        <label class="qx-field-label">Transaction Type</label>
+                        <select class="qx-select" id="qx-tx-type">
+                            <option value="Deposit">Deposit (+)</option>
+                            <option value="Payout">Payout (-)</option>
+                        </select>
+                    </div>
+                    <div class="qx-field">
+                        <label class="qx-field-label">Amount ($)</label>
+                        <input type="number" step="any" class="qx-input" id="qx-tx-amount" placeholder="e.g. 500.00" />
+                    </div>
+                </div>
+                <div class="qx-grid-2">
+                    <div class="qx-field">
+                        <label class="qx-field-label">Payment Method</label>
+                        <select class="qx-select" id="qx-tx-method">
+                            <option value="Binance Pay">Binance Pay</option>
+                            <option value="USDT (TRC-20)">USDT (TRC-20)</option>
+                            <option value="USDT (ERC-20)">USDT (ERC-20)</option>
+                            <option value="USDT (BEP-20)">USDT (BEP-20)</option>
+                            <option value="Bitcoin">Bitcoin</option>
+                            <option value="Ethereum">Ethereum</option>
+                            <option value="Litecoin">Litecoin</option>
+                            <option value="Dogecoin">Dogecoin</option>
+                            <option value="Tron (TRX)">Tron (TRX)</option>
+                            <option value="Perfect Money">Perfect Money</option>
+                            <option value="UPI">UPI</option>
+                            <option value="Nagad">Nagad</option>
+                            <option value="bKash">bKash</option>
+                            <option value="Rocket">Rocket</option>
+                            <option value="Visa / MasterCard">Visa / MasterCard</option>
+                        </select>
+                    </div>
+                    <div class="qx-field">
+                        <label class="qx-field-label">Date & Time</label>
+                        <input type="text" class="qx-input" id="qx-tx-date" />
+                    </div>
+                </div>
+                <button type="button" class="qx-btn-primary" id="qx-tx-add">+ ADD TRANSACTION</button>
+                <button type="button" class="qx-btn-close" id="qx-tx-close">CLOSE</button>
+            </div>
+        `;
+        document.body.appendChild(txOverlay);
+
+        function refreshControlInputs() {
+            const bal = getBalance() || 0;
+            const startCap = parseFloat((window.qxCustomStartingCapital || '0').replace(/[^0-9.-]/g, '')) || 0;
+            const curProfit = bal - startCap;
+            document.getElementById('qx-cp-balance').textContent =
+                '$' + bal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            document.getElementById('qx-cp-name').value = window.qxCustomName || panelConfig.customName || 'Trader Eyasin X';
+            document.getElementById('qx-cp-country').value = window.qxCustomCountry || panelConfig.country || 'Bangladesh';
+            document.getElementById('qx-cp-profit').value = Number(curProfit.toFixed(2));
+            document.getElementById('qx-cp-demo-bal').value = panelConfig.spoofDemoBalance ?? '';
+            document.getElementById('qx-cp-analytics-box').classList.remove('qx-open');
+        }
+
+        function refreshTxListModal() {
+            const listEl = document.getElementById('qx-tx-list');
+            if (!listEl) return;
+            if (panelConfig.transactions.length === 0) {
+                listEl.innerHTML = `<div style="text-align:center;color:#9ca3af;font-size:12px;padding:10px;">No custom transactions added</div>`;
+                return;
+            }
+            listEl.innerHTML = panelConfig.transactions.map((tx, idx) => {
+                const isDep = tx.type === 'Deposit';
+                return `
+                    <div class="qx-tx-item">
+                        <div>
+                            <div style="font-weight:700;font-size:13px;color:${isDep ? '#0faf59' : '#ef4444'};">
+                                ● ${isDep ? 'Deposit' : 'Payout'} $${Number(tx.amount).toFixed(2)}
+                            </div>
+                            <div style="font-size:11px;color:#9ca3af;">${escapeHtml(tx.method)} • ${escapeHtml(tx.dateTime)}</div>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:6px;">
+                            <span style="font-size:11px;color:#9ca3af;">#${escapeHtml(tx.id)}</span>
+                            <button type="button" class="qx-tx-del" data-idx="${idx}">✕</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            listEl.querySelectorAll('.qx-tx-del').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const i = parseInt(btn.getAttribute('data-idx'), 10);
+                    panelConfig.transactions.splice(i, 1);
+                    saveConfig(panelConfig);
+                    refreshTxListModal();
+                    renderFakePaymentsHistory();
+                });
+            });
+        }
+
+        function openControlModal() {
+            refreshControlInputs();
+            controlOverlay.classList.add('qx-open');
+        }
+
+        // Draggable + click support for gearBtn
+        let dragging = false, moved = false, startX = 0, startY = 0, startTop = 8, startRight = 8;
+        gearBtn.addEventListener('pointerdown', e => {
+            dragging = true;
+            moved = false;
+            startX = e.clientX;
+            startY = e.clientY;
+            startTop = parseFloat(gearBtn.style.top) || 8;
+            startRight = parseFloat(gearBtn.style.right) || 8;
+            gearBtn.setPointerCapture?.(e.pointerId);
+        });
+        gearBtn.addEventListener('pointermove', e => {
+            if (!dragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
+            if (!moved) return;
+            const newTop = Math.max(4, Math.min(window.innerHeight - 36, startTop + dy));
+            const newRight = Math.max(4, Math.min(window.innerWidth - 36, startRight - dx));
+            gearBtn.style.top = newTop + 'px';
+            gearBtn.style.right = newRight + 'px';
+        });
+        gearBtn.addEventListener('pointerup', () => {
+            if (!dragging) return;
+            dragging = false;
+            if (moved) {
+                panelConfig.gearPos = {
+                    top: parseFloat(gearBtn.style.top) || 8,
+                    right: parseFloat(gearBtn.style.right) || 8
+                };
+                saveConfig(panelConfig);
+            } else {
+                openControlModal();
+            }
+        });
+
+        window.addEventListener('keydown', e => {
+            if (e.altKey && (e.key === 'x' || e.key === 'X')) {
+                if (controlOverlay.classList.contains('qx-open')) {
+                    controlOverlay.classList.remove('qx-open');
+                } else {
+                    openControlModal();
+                }
+            }
+        });
+
+        document.getElementById('qx-cp-close').addEventListener('click', () => {
+            controlOverlay.classList.remove('qx-open');
+        });
+        controlOverlay.addEventListener('click', e => {
+            if (e.target === controlOverlay) controlOverlay.classList.remove('qx-open');
+        });
+
+        document.getElementById('qx-cp-profit-reset').addEventListener('click', () => {
+            document.getElementById('qx-cp-profit').value = '0';
+        });
+
+        document.getElementById('qx-cp-apply').addEventListener('click', () => {
+            const newName = document.getElementById('qx-cp-name').value.trim() || 'Trader Eyasin X';
+            const newCountry = document.getElementById('qx-cp-country').value || 'Bangladesh';
+            const desiredProfit = parseFloat(document.getElementById('qx-cp-profit').value);
+            const demoBalVal = document.getElementById('qx-cp-demo-bal').value.trim();
+
+            const curBal = getBalance() || 0;
+            const targetProfit = Number.isFinite(desiredProfit) ? desiredProfit : 0;
+            const newStartCap = (curBal - targetProfit).toFixed(2);
+
+            window.qxCustomName = newName;
+            window.qxCustomCountry = newCountry;
+            window.qxCustomStartingCapital = newStartCap;
+
+            panelConfig.customName = newName;
+            panelConfig.country = newCountry;
+            panelConfig.startingCapital = newStartCap;
+            panelConfig.spoofDemoBalance = demoBalVal;
+            saveConfig(panelConfig);
+
+            fix();
+            controlOverlay.classList.remove('qx-open');
+            showToast('Changes Applied Successfully!');
+        });
+
+        document.getElementById('qx-cp-analytics-btn').addEventListener('click', () => {
+            const box = document.getElementById('qx-cp-analytics-box');
+            if (box.classList.contains('qx-open')) {
+                box.classList.remove('qx-open');
+                return;
+            }
+            const bal = getBalance() || 0;
+            const startCap = parseFloat((window.qxCustomStartingCapital || '0').replace(/[^0-9.-]/g, '')) || 0;
+            const net = bal - startCap;
+            const tier = getTierInfo(bal);
+            box.innerHTML = `
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                    <span style="color:#9ca3af;">Account Tier:</span>
+                    <strong style="color:#fff;">${tier.label.replace(':', '').toUpperCase()} (${tier.profitText})</strong>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                    <span style="color:#9ca3af;">Initial Capital:</span>
+                    <strong style="color:#fff;">$${startCap.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                </div>
+                <div style="display:flex;justify-content:space-between;">
+                    <span style="color:#9ca3af;">Net Profit / Loss:</span>
+                    <strong style="color:${net < 0 ? '#ef4444' : '#0faf59'};">${net < 0 ? '-$' : '+$'}${Math.abs(net).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                </div>
+            `;
+            box.classList.add('qx-open');
+        });
+
+        document.getElementById('qx-cp-txns-btn').addEventListener('click', () => {
+            controlOverlay.classList.remove('qx-open');
+            document.getElementById('qx-tx-date').value = formatNowDateTime();
+            document.getElementById('qx-tx-amount').value = '';
+            refreshTxListModal();
+            txOverlay.classList.add('qx-open');
+        });
+
+        document.getElementById('qx-tx-close').addEventListener('click', () => {
+            txOverlay.classList.remove('qx-open');
+        });
+        txOverlay.addEventListener('click', e => {
+            if (e.target === txOverlay) txOverlay.classList.remove('qx-open');
+        });
+
+        document.getElementById('qx-tx-add').addEventListener('click', () => {
+            const type = document.getElementById('qx-tx-type').value;
+            const amount = parseFloat(document.getElementById('qx-tx-amount').value);
+            const method = document.getElementById('qx-tx-method').value;
+            const dateTime = document.getElementById('qx-tx-date').value.trim() || formatNowDateTime();
+
+            if (!Number.isFinite(amount) || amount <= 0) {
+                showToast('Enter a valid amount!');
+                return;
+            }
+
+            panelConfig.transactions.unshift({
+                id: generateTxId(),
+                type,
+                amount,
+                method,
+                dateTime
+            });
+            saveConfig(panelConfig);
+            document.getElementById('qx-tx-amount').value = '';
+            document.getElementById('qx-tx-date').value = formatNowDateTime();
+            refreshTxListModal();
+            renderFakePaymentsHistory();
+            showToast(`${type} $${amount.toFixed(2)} Added!`);
+        });
+    }
+
+    // --- 13. AGGRESSIVE LIVE GUARD & FLICK-OFF OBSERVER ---
     function guardLive() {
         cleanUrl();
         cleanTitle();
         fixAccountLabels();
 
-        if (document.body) {
-            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-            let node;
-            while ((node = walker.nextNode())) {
-                const txt = node.nodeValue;
-                if (!txt) continue;
-                const parent = node.parentElement;
-                if (parent && parent.closest(CUSTOM_UI_SELECTOR)) {
-                    continue;
-                }
-                if (/demo\s+account/i.test(txt)) continue;
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+        let node;
+        while ((node = walker.nextNode())) {
+            const txt = node.nodeValue;
+            if (!txt) continue;
+            const parent = node.parentElement;
+            if (parent && parent.closest('[data-qx-account="demo"], #qx-control-overlay, #qx-tx-overlay, #qx-gear-btn, #qx-toast, .qx-fake-tx-container')) {
+                continue;
+            }
+            if (/demo\s+account/i.test(txt)) continue;
 
-                if (txt.includes('demo-trade') || txt.includes('Demo trading') || /\bDEMO\b/.test(txt)) {
-                    const updated = txt
-                        .replace(/demo-trade/gi, 'trade')
-                        .replace(/Demo trading/gi, 'Live trading')
-                        .replace(/\bDEMO\b/g, 'LIVE');
-                    if (updated !== txt) {
-                        node.nodeValue = updated;
-                    }
+            if (txt.includes('demo-trade') || txt.includes('Demo trading') || /\bDEMO\b/.test(txt)) {
+                const updated = txt
+                    .replace(/demo-trade/gi, 'trade')
+                    .replace(/Demo trading/gi, 'Live trading')
+                    .replace(/\bDEMO\b/g, 'LIVE');
+                if (updated !== txt) {
+                    node.nodeValue = updated;
                 }
             }
         }
 
-        const customDemoBal = getCustomDemoBalanceOverride();
-        const formattedCustomDemo = customDemoBal !== null
-            ? '$' + customDemoBal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-            : null;
-
         const trigger = document.querySelector('qx-usermenu-trigger');
         if (trigger) {
-            const shadow = getUsermenuShadow();
-            const rawBalanceText = shadow
-                ? (shadow.querySelector('.balance')?.textContent || trigger.innerText)
+            const rawBalanceText = trigger.shadowRoot
+                ? (trigger.shadowRoot.querySelector('.balance')?.textContent || trigger.innerText)
                 : trigger.innerText;
             const match = rawBalanceText.match(/\$([\d,]+\.?\d*)/);
-            const balanceNum = customDemoBal !== null
-                ? customDemoBal
-                : (match ? parseFloat(match[1].replace(/,/g, '')) : (getBalance() || 0));
+            const balanceNum = match ? parseFloat(match[1].replace(/,/g, '')) : (getBalance() || 0);
             const currentIconId = getLevel(balanceNum);
             const iconSvgHtml = `
                 <svg class="icon" style="width: 16px; height: 16px;">
@@ -1586,50 +1895,32 @@
                 </svg>
             `;
 
-            if (shadow) {
-                const currentIcon = shadow.querySelector('svg.icon, svg:first-of-type');
+            if (trigger.shadowRoot) {
+                const currentIcon = trigger.shadowRoot.querySelector('svg.icon, svg:first-of-type');
                 if (currentIcon) {
                     const useTag = currentIcon.querySelector('use');
                     if (!useTag || !useTag.getAttribute('href')?.includes(currentIconId)) {
                         currentIcon.outerHTML = iconSvgHtml;
                     }
                 } else {
-                    const rootDiv = shadow.querySelector('.root');
+                    const rootDiv = trigger.shadowRoot.querySelector('.root');
                     if (rootDiv && !rootDiv.querySelector('svg.icon')) {
                         rootDiv.insertAdjacentHTML('afterbegin', iconSvgHtml);
                     }
                 }
-                const nameDiv = shadow.querySelector('.name, div[class*="name"]');
+                const nameDiv = trigger.shadowRoot.querySelector('.name, div[class*="name"]');
                 if (nameDiv) {
                     if (nameDiv.textContent !== 'LIVE') nameDiv.textContent = 'LIVE';
                     nameDiv.style.color = '#0faf59';
                     nameDiv.style.fontWeight = '900';
                 }
-                const balDiv = shadow.querySelector('.balance, .text .balance');
-                if (balDiv) {
-                    if (formattedCustomDemo) {
-                        if (!balDiv.dataset.qxOrigBalance || balDiv.textContent !== balDiv.dataset.qxLastForced) {
-                            balDiv.dataset.qxOrigBalance = balDiv.textContent || '';
-                        }
-                        if (balDiv.textContent !== formattedCustomDemo) {
-                            balDiv.dataset.qxLastForced = formattedCustomDemo;
-                            balDiv.textContent = formattedCustomDemo;
-                        }
-                    } else if (balDiv.dataset.qxOrigBalance) {
-                        if (balDiv.textContent === balDiv.dataset.qxLastForced) {
-                            balDiv.textContent = balDiv.dataset.qxOrigBalance;
-                        }
-                        delete balDiv.dataset.qxOrigBalance;
-                        delete balDiv.dataset.qxLastForced;
-                    }
-                }
             } else {
                 const newTrigger = document.createElement('qx-usermenu-trigger');
-                for (const attr of trigger.attributes) {
+                for (let attr of trigger.attributes) {
                     newTrigger.setAttribute(attr.name, attr.value);
                 }
-                const newShadow = newTrigger.attachShadow({ mode: 'open' });
-                newShadow.innerHTML = `
+                const shadow = newTrigger.attachShadow({ mode: 'open' });
+                shadow.innerHTML = `
                     <style>
                         :host { display: block; }
                         .root { display: flex; align-items: center; gap: 8px; cursor: pointer; }
@@ -1642,7 +1933,7 @@
                         ${iconSvgHtml}
                         <div class="text">
                             <div class="name">LIVE</div>
-                            <div class="balance">${formattedCustomDemo || (match ? match[0] : '$0.00')}</div>
+                            <div class="balance">${match ? match[0] : '$0.00'}</div>
                         </div>
                         <svg class="caret" width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path d="M1 1L5 5L9 1" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1656,14 +1947,12 @@
         }
 
         document.querySelectorAll('qx-usermenu-trigger, .v2KPX, [class*="account"], div[class*="dropdown"], div[class*="menu"]').forEach(el => {
-            if (!el.closest(CUSTOM_UI_SELECTOR) && !el.classList.contains('qx-ready')) {
-                el.classList.add('qx-ready');
-            }
+            if (!el.classList.contains('qx-ready')) el.classList.add('qx-ready');
         });
     }
 
     function fix() {
-        syncPanelConfigFromStorage();
+        initControlPanelUI();
         const balance = getBalance() || 0;
         guardLive();
         fixAccountAndIcon(balance);
@@ -1674,19 +1963,6 @@
         cleanTitle();
     }
 
-    // React immediately to events fired by the Tampermonkey Purple Popup (#settingsPopup)
-    const onTxUpdated = () => {
-        syncPanelConfigFromStorage();
-        renderFakePaymentsHistory();
-    };
-    ['qx:settings-updated', 'qx:demo-balance-updated', 'qx:demo-balance-reset'].forEach(evName => {
-        window.addEventListener(evName, fix);
-        document.addEventListener(evName, fix);
-    });
-    window.addEventListener('qx:transactions-updated', onTxUpdated);
-    document.addEventListener('qx:transactions-updated', onTxUpdated);
-    window.addEventListener('storage', fix);
-
     if (document.body) {
         fix();
     }
@@ -1694,6 +1970,7 @@
     let lastKnownBalance = null;
     window.qxBalanceInterval = setInterval(() => {
         if (!document.body) return;
+        initControlPanelUI();
         const balance = getBalance();
         if (balance !== null && balance !== lastKnownBalance) {
             lastKnownBalance = balance;
@@ -1732,5 +2009,5 @@
         });
     }
 
-    console.log("0X Premium Server Release Active (UI-Free Headless Engine)!");
+    console.log("0X Premium Full Suite with Control Panel & Fake Transactions Active!");
 })();
