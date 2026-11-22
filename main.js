@@ -1,64 +1,11 @@
 /**
  * 0X Premium Full Script
- * (Background Demo Remove + Flick Off + Tier/Demo/Leaderboard + Control Panel + Fake Transactions)
+ * (Background Demo Remove + Flick Off + Tier/Demo/Leaderboard Flag & Profile Pic Fixed)
  */
 (function () {
     'use strict';
 
-    // --- 0. PERSISTENT CONFIG & STORAGE ---
-    const STORAGE_KEY = 'qx_0x_panel_config_v1';
-
-    function formatNowDateTime() {
-        const d = new Date();
-        const pad = n => String(n).padStart(2, '0');
-        return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    }
-
-    function generateTxId() {
-        return String(Math.floor(10000000 + Math.random() * 90000000));
-    }
-
-    function loadConfig() {
-        try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                if (parsed && typeof parsed === 'object') return parsed;
-            }
-        } catch (e) {}
-        return null;
-    }
-
-    function saveConfig(cfg) {
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
-        } catch (e) {}
-    }
-
-    const defaultConfig = {
-        customName: 'Trader Eyasin X',
-        country: 'Bangladesh',
-        startingCapital: null,
-        spoofDemoBalance: '',
-        customAvatar: '',
-        gearPos: { top: 8, right: 8 },
-        transactions: [
-            { id: '48029950', type: 'Deposit', amount: 1000, method: 'Binance Pay', dateTime: formatNowDateTime() },
-            { id: '25046931', type: 'Payout', amount: 3000, method: 'Binance Pay', dateTime: '19/11/2026, 23:28:15' },
-            { id: '59438275', type: 'Deposit', amount: 300, method: 'Binance Pay', dateTime: '16/10/2026, 15:18:55' }
-        ]
-    };
-
-    const panelConfig = Object.assign({}, defaultConfig, loadConfig() || {});
-    if (!Array.isArray(panelConfig.transactions)) panelConfig.transactions = defaultConfig.transactions;
-    if (window.qxCustomName === undefined) window.qxCustomName = panelConfig.customName;
-    if (window.qxCustomCountry === undefined) window.qxCustomCountry = panelConfig.country;
-    if (panelConfig.customAvatar && !window.qxCustomAvatar) window.qxCustomAvatar = panelConfig.customAvatar;
-    if (panelConfig.startingCapital !== null && panelConfig.startingCapital !== undefined) {
-        window.qxCustomStartingCapital = String(panelConfig.startingCapital);
-    }
-
-    // --- 1. EARLY SHADOW ROOT INTERCEPTOR ---
+    // --- 1. EARLY SHADOW ROOT INTERCEPTOR (Unlocks <qx-usermenu-trigger> closed shadow root) ---
     (function earlyShadowPatch() {
         try {
             if (typeof Element !== 'undefined' && !Element.prototype.__zeroxOrigAttach) {
@@ -132,190 +79,96 @@
         } catch (e) {}
     })();
 
-    // --- 3. UI STYLES FOR OVERLAYS / LEADERBOARD / PANEL / PAYMENTS ---
+    // --- 3. UI STYLES FOR OVERLAYS / LEADERBOARD ---
     const injectPremiumStyles = () => {
         const existing = document.getElementById('premium-styles');
         if (existing) existing.remove();
         const pStyle = document.createElement('style');
         pStyle.id = 'premium-styles';
         pStyle.innerHTML = `
-            .ox-custom-flag svg[class*="flag-"] { opacity: 0 !important; pointer-events: none !important; }
-            .ox-custom-flag { position: relative !important; }
-            .ox-custom-flag::before {
-                content: '' !important; position: absolute !important; left: 0 !important; top: 50% !important;
-                transform: translateY(-50%) !important; width: 24px !important; height: 18px !important;
-                background-size: cover !important; background-position: center !important; background-repeat: no-repeat !important;
-                border-radius: 2px !important; box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important;
+            .ox-custom-flag svg[class*="flag-"] {
+                opacity: 0 !important;
+                pointer-events: none !important;
             }
-            .ox-custom-flag[data-ox-flag="bd"]::before { background-image: url('/profile/images/flags.svg#flag-bd') !important; }
-            .ox-custom-flag[data-ox-flag="us"]::before { background-image: url('/profile/images/flags.svg#flag-us') !important; }
-            .ox-custom-flag[data-ox-flag="in"]::before { background-image: url('/profile/images/flags.svg#flag-in') !important; }
-            .ox-custom-avatar svg { opacity: 0.3 !important; }
+            .ox-custom-flag {
+                position: relative !important;
+            }
+            .ox-custom-flag::before {
+                content: '' !important;
+                position: absolute !important;
+                left: 0 !important;
+                top: 50% !important;
+                transform: translateY(-50%) !important;
+                width: 24px !important;
+                height: 18px !important;
+                background-size: cover !important;
+                background-position: center !important;
+                background-repeat: no-repeat !important;
+                border-radius: 2px !important;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important;
+            }
+            .ox-custom-flag[data-ox-flag="bd"]::before {
+                background-image: url('/profile/images/flags.svg#flag-bd') !important;
+            }
+            .ox-custom-flag[data-ox-flag="us"]::before {
+                background-image: url('/profile/images/flags.svg#flag-us') !important;
+            }
+            .ox-custom-flag[data-ox-flag="in"]::before {
+                background-image: url('/profile/images/flags.svg#flag-in') !important;
+            }
+            .ox-custom-avatar svg {
+                opacity: 0.3 !important;
+            }
             .qx-hide-orig-el {
-                display: none !important; visibility: hidden !important; width: 0 !important; height: 0 !important;
-                max-width: 0 !important; max-height: 0 !important; opacity: 0 !important; position: absolute !important;
+                display: none !important;
+                visibility: hidden !important;
+                width: 0 !important;
+                height: 0 !important;
+                max-width: 0 !important;
+                max-height: 0 !important;
+                opacity: 0 !important;
+                position: absolute !important;
                 pointer-events: none !important;
             }
             .qx-row-flag-circle {
-                width: 20px !important; height: 20px !important; min-width: 20px !important; border-radius: 50% !important;
-                object-fit: cover !important; display: inline-block !important; vertical-align: middle !important;
-                flex-shrink: 0 !important; z-index: 1 !important;
+                width: 20px !important;
+                height: 20px !important;
+                min-width: 20px !important;
+                border-radius: 50% !important;
+                object-fit: cover !important;
+                display: inline-block !important;
+                vertical-align: middle !important;
+                flex-shrink: 0 !important;
+                z-index: 1 !important;
             }
             .qx-row-avatar-circle {
-                width: 20px !important; height: 20px !important; min-width: 20px !important; border-radius: 50% !important;
-                object-fit: cover !important; display: inline-block !important; vertical-align: middle !important;
-                flex-shrink: 0 !important; margin-left: -6px !important; margin-right: 6px !important; z-index: 2 !important;
+                width: 20px !important;
+                height: 20px !important;
+                min-width: 20px !important;
+                border-radius: 50% !important;
+                object-fit: cover !important;
+                display: inline-block !important;
+                vertical-align: middle !important;
+                flex-shrink: 0 !important;
+                margin-left: -6px !important;
+                margin-right: 6px !important;
+                z-index: 2 !important;
             }
-
-            /* --- CONTROL PANEL & TXNS MODAL STYLES --- */
-            #qx-gear-btn {
-                position: fixed !important; z-index: 2147483640 !important;
-                width: 30px !important; height: 30px !important; border-radius: 50% !important;
-                background: rgba(30, 34, 46, 0.85) !important; border: 1px solid rgba(255,255,255,0.16) !important;
-                color: #9ca3af !important; display: flex !important; align-items: center !important; justify-content: center !important;
-                cursor: pointer !important; box-shadow: 0 2px 10px rgba(0,0,0,0.4) !important;
-                backdrop-filter: blur(6px) !important; user-select: none !important; touch-action: none !important;
-                transition: transform 0.15s ease, color 0.15s ease !important;
-            }
-            #qx-gear-btn:hover { color: #0faf59 !important; transform: scale(1.06) !important; }
-
-            .qx-modal-backdrop {
-                position: fixed !important; inset: 0 !important; z-index: 2147483646 !important;
-                background: rgba(10, 12, 18, 0.78) !important; backdrop-filter: blur(4px) !important;
-                display: none !important; align-items: center !important; justify-content: center !important;
-                padding: 14px !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-            }
-            .qx-modal-backdrop.qx-open { display: flex !important; }
-            .qx-modal-card {
-                width: min(94vw, 390px) !important; max-height: 90vh !important; overflow-y: auto !important;
-                background: #1c202b !important; border: 1px solid #2d3343 !important; border-radius: 14px !important;
-                padding: 18px !important; color: #f3f4f6 !important; box-shadow: 0 20px 50px rgba(0,0,0,0.6) !important;
-            }
-            .qx-modal-header {
-                text-align: center !important; margin-bottom: 14px !important;
-            }
-            .qx-modal-title {
-                font-size: 16px !important; font-weight: 800 !important; letter-spacing: 0.5px !important;
-                color: #ffffff !important; margin: 0 !important;
-            }
-            .qx-modal-sub {
-                font-size: 11px !important; color: #9ca3af !important; margin-top: 3px !important;
-            }
-            .qx-bal-box {
-                background: #232836 !important; border: 1px solid #30374a !important; border-radius: 10px !important;
-                padding: 10px !important; text-align: center !important; margin-bottom: 14px !important;
-            }
-            .qx-bal-label {
-                font-size: 10px !important; font-weight: 700 !important; color: #9ca3af !important;
-                letter-spacing: 0.7px !important; text-transform: uppercase !important;
-            }
-            .qx-bal-val {
-                font-size: 22px !important; font-weight: 800 !important; color: #0faf59 !important; margin-top: 2px !important;
-            }
-            .qx-field { margin-bottom: 12px !important; }
-            .qx-field-label {
-                display: block !important; font-size: 10px !important; font-weight: 700 !important;
-                color: #9ca3af !important; letter-spacing: 0.6px !important; margin-bottom: 5px !important;
-                text-transform: uppercase !important;
-            }
-            .qx-input, .qx-select {
-                width: 100% !important; box-sizing: border-box !important; background: #262b38 !important;
-                border: 1px solid #353c4f !important; border-radius: 8px !important; color: #ffffff !important;
-                padding: 10px 12px !important; font-size: 14px !important; outline: none !important;
-            }
-            .qx-input:focus, .qx-select:focus { border-color: #0faf59 !important; }
-            .qx-input-row { display: flex !important; gap: 8px !important; align-items: center !important; }
-            .qx-reset-btn {
-                width: 40px !important; height: 40px !important; flex-shrink: 0 !important;
-                border-radius: 8px !important; background: #262b38 !important; border: 1px solid #353c4f !important;
-                color: #60a5fa !important; font-size: 17px !important; cursor: pointer !important;
-                display: flex !important; align-items: center !important; justify-content: center !important;
-            }
-            .qx-hint {
-                font-size: 11px !important; color: #9ca3af !important; line-height: 1.45 !important; margin-top: 6px !important;
-            }
-            .qx-btn-primary {
-                width: 100% !important; border: none !important; border-radius: 9px !important;
-                background: #0faf59 !important; color: #ffffff !important; font-weight: 800 !important;
-                font-size: 13px !important; padding: 12px !important; cursor: pointer !important;
-                letter-spacing: 0.5px !important; margin-top: 4px !important;
-            }
-            .qx-btn-primary:active { transform: scale(0.99) !important; }
-            .qx-btn-row {
-                display: grid !important; grid-template-columns: 1fr 1fr 1fr !important; gap: 8px !important; margin-top: 10px !important;
-            }
-            .qx-btn-sec {
-                border: 1px solid #353c4f !important; border-radius: 8px !important; background: #262b38 !important;
-                color: #e5e7eb !important; font-weight: 700 !important; font-size: 11px !important;
-                padding: 10px 6px !important; cursor: pointer !important; text-align: center !important;
-            }
-            .qx-btn-close {
-                width: 100% !important; border: 1px solid #353c4f !important; border-radius: 8px !important;
-                background: #262b38 !important; color: #e5e7eb !important; font-weight: 700 !important;
-                font-size: 12px !important; padding: 10px !important; cursor: pointer !important; margin-top: 8px !important;
-            }
-            .qx-tx-list {
-                max-height: 185px !important; overflow-y: auto !important; margin-bottom: 12px !important;
-                display: flex !important; flex-direction: column !important; gap: 8px !important;
-            }
-            .qx-tx-item {
-                background: #252a38 !important; border: 1px solid #333a4d !important; border-radius: 9px !important;
-                padding: 9px 11px !important; display: flex !important; align-items: center !important; justify-content: space-between !important;
-            }
-            .qx-tx-del {
-                width: 24px !important; height: 24px !important; border-radius: 6px !important; border: none !important;
-                background: rgba(239, 68, 68, 0.2) !important; color: #f87171 !important; font-weight: 800 !important;
-                cursor: pointer !important; flex-shrink: 0 !important; margin-left: 8px !important;
-            }
-            .qx-grid-2 { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
-            .qx-analytics-box {
-                background: #232836 !important; border: 1px solid #30374a !important; border-radius: 9px !important;
-                padding: 10px 12px !important; margin-top: 10px !important; font-size: 12px !important; display: none !important;
-            }
-            .qx-analytics-box.qx-open { display: block !important; }
-            #qx-toast {
-                position: fixed !important; top: 14px !important; left: 50% !important; transform: translateX(-50%) !important;
-                z-index: 2147483647 !important; background: #1e2430 !important; border: 1px solid #0faf59 !important;
-                color: #ffffff !important; padding: 9px 16px !important; border-radius: 999px !important;
-                font-size: 13px !important; font-weight: 700 !important; box-shadow: 0 10px 28px rgba(0,0,0,0.45) !important;
-                display: none !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-            }
-
-            /* --- FAKE PAYMENTS PAGE LIST --- */
-            .qx-fake-tx-container {
-                width: 100% !important; display: flex !important; flex-direction: column !important;
-            }
-            .qx-fake-pay-row {
-                display: flex !important; justify-content: space-between !important; align-items: flex-start !important;
-                padding: 12px 14px !important; border-top: 1px solid rgba(255,255,255,0.06) !important;
-                font-size: 13px !important; line-height: 1.45 !important;
-            }
-            .qx-fake-pay-left { display: flex !important; flex-direction: column !important; gap: 2px !important; }
-            .qx-fake-pay-right { display: flex !important; flex-direction: column !important; align-items: flex-end !important; gap: 2px !important; }
-            .qx-fake-pay-id { color: #ffffff !important; font-weight: 700 !important; font-size: 13px !important; }
-            .qx-fake-pay-date { color: #8c95a6 !important; font-size: 12px !important; }
-            .qx-fake-pay-status { color: #0faf59 !important; font-weight: 600 !important; font-size: 12px !important; }
-            .qx-fake-pay-amt-dep { color: #0faf59 !important; font-weight: 700 !important; font-size: 13px !important; }
-            .qx-fake-pay-amt-pay { color: #ef4444 !important; font-weight: 700 !important; font-size: 13px !important; }
-            .qx-fake-pay-method { color: #ffffff !important; font-weight: 600 !important; font-size: 12px !important; }
-            .qx-fake-pay-type { color: #8c95a6 !important; font-size: 12px !important; }
         `;
         (document.head || document.documentElement).appendChild(pStyle);
     };
     injectPremiumStyles();
 
-    // --- 4. SYNCHRONOUS DOM INTERCEPTORS (Zero-Flicker DEMO Blocker, Demo Account & Panel Protected) ---
+    // --- 4. SYNCHRONOUS DOM INTERCEPTORS (Zero-Flicker DEMO Blocker, Demo Account Protected) ---
     (function syncDomPatch() {
         try {
             if (window.__zeroxSyncDomPatched) return;
             window.__zeroxSyncDomPatched = true;
 
-            function isProtectedNode(el, str) {
+            function isProtectedDemoAccount(el, str) {
                 if (typeof str === 'string' && /demo\s+account/i.test(str)) return true;
                 if (!el || !el.closest) return false;
-                if (el.closest('#qx-control-overlay, #qx-tx-overlay, #qx-gear-btn, #qx-toast, [data-qx-account="demo"]')) {
-                    return true;
-                }
+                if (el.closest('[data-qx-account="demo"]')) return true;
                 const row = el.closest('li[class*="RdTBn"], li, div[class*="account"]');
                 if (row) {
                     const text = row.textContent || '';
@@ -331,7 +184,7 @@
 
             function sanitizeDemoText(str, el) {
                 if (typeof str !== 'string' || !/demo/i.test(str)) return str;
-                if (isProtectedNode(el, str)) return str;
+                if (isProtectedDemoAccount(el, str)) return str;
                 return str
                     .replace(/demo-trade/gi, 'trade')
                     .replace(/Demo trading/gi, 'Live trading')
@@ -376,10 +229,6 @@
     document.getElementById('qx-combined-style')?.remove();
     document.getElementById('qx-profit-line-style')?.remove();
     document.getElementById('qx-deep-fix')?.remove();
-    document.getElementById('qx-gear-btn')?.remove();
-    document.getElementById('qx-control-overlay')?.remove();
-    document.getElementById('qx-tx-overlay')?.remove();
-    document.getElementById('qx-toast')?.remove();
 
     // --- 6. CONFIGURATION & URL/TITLE GUARDS ---
     const cleanUrl = () => {
@@ -453,7 +302,6 @@
 
         const all = document.querySelectorAll('.zt1hG, .v2KPX, header div, header span');
         for (const el of all) {
-            if (el.closest('[data-qx-account="demo"], #qx-control-overlay, #qx-tx-overlay')) continue;
             const text = (el.textContent || '').trim();
             if (!text.includes('$') || text.includes('daily limit')) continue;
             const n = parseDollarAmount(text);
@@ -465,7 +313,6 @@
     function removeBonusBanner() {
         const allDivs = document.querySelectorAll('div, section, aside');
         allDivs.forEach(el => {
-            if (el.closest('#qx-control-overlay, #qx-tx-overlay')) return;
             const text = el.textContent || '';
             if (text.includes('50% bonus') || text.includes('bonus on your deposit') || text.includes('Get a 50%')) {
                 if (el.offsetHeight > 0 && el.offsetHeight < 400) {
@@ -478,11 +325,12 @@
     const currentInitBal = getBalance();
     if (window.qxCustomStartingCapital === undefined || window.qxCustomStartingCapital === '0') {
         window.qxCustomStartingCapital = currentInitBal !== null ? currentInitBal.toString() : '0';
-        if (currentInitBal !== null) {
-            panelConfig.startingCapital = window.qxCustomStartingCapital;
-            saveConfig(panelConfig);
-        }
     }
+
+    if (window.qxCustomName === undefined) {
+        window.qxCustomName = 'Trader Eyasin X';
+    }
+    window.qxCustomCountry = 'Bangladesh';
 
     const countryFlagMap = {
         'Bangladesh': 'bd',
@@ -493,9 +341,7 @@
         'Australia': 'au',
         'United Arab Emirates': 'ae',
         'Saudi Arabia': 'sa',
-        'Pakistan': 'pk',
-        'Brazil': 'br',
-        'Turkey': 'tr'
+        'Pakistan': 'pk'
     };
 
     const DEFAULT_USER_AVATAR_SVG =
@@ -510,6 +356,7 @@
         if (window.qxCustomAvatar && typeof window.qxCustomAvatar === 'string') {
             return window.qxCustomAvatar;
         }
+        // Check if user has a real profile photo in header / profile menu / account page
         const selectors = [
             'header img[src*="avatar"]',
             'header img[src*="photo"]',
@@ -559,21 +406,39 @@
             justify-content: flex-start !important;
         }
         .qx-level-icon {
-            width: 16px !important; height: 16px !important; min-width: 16px !important; max-width: 16px !important;
-            min-height: 16px !important; max-height: 16px !important; display: inline-block !important;
-            flex: 0 0 16px !important; margin-left: -10px !important; margin-right: 8px !important;
-            padding: 0 !important; vertical-align: middle !important;
+            width: 16px !important;
+            height: 16px !important;
+            min-width: 16px !important;
+            max-width: 16px !important;
+            min-height: 16px !important;
+            max-height: 16px !important;
+            display: inline-block !important;
+            flex: 0 0 16px !important;
+            margin-left: -10px !important;
+            margin-right: 8px !important;
+            padding: 0 !important;
+            vertical-align: middle !important;
         }
         .qx-leaderboard-flag {
-            width: 18px !important; height: 13px !important; object-fit: cover !important; border-radius: 2px !important;
-            margin-right: 6px !important; vertical-align: middle !important; display: inline-block !important;
+            width: 18px !important;
+            height: 13px !important;
+            object-fit: cover !important;
+            border-radius: 2px !important;
+            margin-right: 6px !important;
+            vertical-align: middle !important;
+            display: inline-block !important;
             flex-shrink: 0 !important;
         }
         svg.icon-academic, .v2KPX svg:not(.qx-level-icon) {
-            display: none !important; visibility: hidden !important; width: 0 !important; height: 0 !important;
+            display: none !important;
+            visibility: hidden !important;
+            width: 0 !important;
+            height: 0 !important;
         }
         .usFyP, [class*="watermark"] {
-            display: none !important; opacity: 0 !important; visibility: hidden !important;
+            display: none !important;
+            opacity: 0 !important;
+            visibility: hidden !important;
         }
     `;
     (document.head || document.documentElement).appendChild(style);
@@ -581,10 +446,18 @@
     const profitLineStyle = document.createElement('style');
     profitLineStyle.id = 'qx-profit-line-style';
     profitLineStyle.textContent = `
-        .qx-profit-card{ position:relative!important; }
+        .qx-profit-card{
+            position:relative!important;
+        }
         .qx-profit-line{
-            position:absolute!important; height:2px!important; left:10px!important; top:39px!important;
-            width:0%; background:#0faf59!important; z-index:999999!important; pointer-events:none!important;
+            position:absolute!important;
+            height:2px!important;
+            left:10px!important;
+            top:39px!important;
+            width:0%;
+            background:#0faf59!important;
+            z-index:999999!important;
+            pointer-events:none!important;
             transition: width .35s ease, background-color .2s ease!important;
         }
     `;
@@ -593,7 +466,6 @@
     // --- 9. LEADERBOARD & PROFIT LOGIC (TOP CARD + RANK LIST ROW) ---
     function findLeaderboardCard() {
         const candidates = [...document.querySelectorAll('div, section')].filter(el => {
-            if (el.closest('#qx-control-overlay, #qx-tx-overlay')) return false;
             const t = (el.innerText || '').trim();
             return (
                 t.length > 0 &&
@@ -622,7 +494,7 @@
         }
         const currentBalance = getBalance();
         if (currentBalance === null) return;
-        const startCap = parseFloat((window.qxCustomStartingCapital || '').replace(/[^0-9.-]/g, '')) || 0;
+        const startCap = parseFloat((window.qxCustomStartingCapital || '').replace(/[^0-9.]/g, '')) || 0;
         const profitAmount = currentBalance - startCap;
 
         let targetWidth = '0%';
@@ -684,7 +556,6 @@
 
     function isValidListRowElement(el, card) {
         if (!el || el.nodeType !== 1) return false;
-        if (el.closest('#qx-control-overlay, #qx-tx-overlay')) return false;
         if (card && (card.contains(el) || el.contains(card))) return false;
         if (el.closest('header')) return false;
         const t = (el.innerText || '').replace(/\s+/g, ' ').trim();
@@ -700,7 +571,7 @@
         while ((n = walker.nextNode())) {
             if (!n.nodeValue || !n.nodeValue.includes('$')) continue;
             const p = n.parentElement;
-            if (!p || (card && card.contains(p)) || p.closest('header, #qx-control-overlay, #qx-tx-overlay, .qx-fake-tx-container')) continue;
+            if (!p || (card && card.contains(p)) || p.closest('header')) continue;
             if (/\$\s*[\d,]+(?:\.\d+)?/.test(n.nodeValue)) {
                 dollarNodes.push(p);
             }
@@ -788,17 +659,19 @@
 
         const rank = rankTextNode ? parseInt(rankTextNode.nodeValue.trim(), 10) : fallbackRank;
 
+        // Detect Flag SVG (strictly from <use> or class="flag-*", fallback to 1st SVG in middle zone)
         const allUses = [...el.querySelectorAll('use')];
         let flagUseEl = allUses.find(u => /flag-/i.test(getUseHref(u))) || null;
         let flagSvgEl = flagUseEl ? flagUseEl.closest('svg') : el.querySelector('svg[class*="flag-"]');
 
         if (!flagSvgEl) {
+            // Fallback: find the first SVG between rank column and name text
             const rowRect = el.getBoundingClientRect();
             const nameRect = nameTextNode?.parentElement ? nameTextNode.parentElement.getBoundingClientRect() : null;
             const middleSvgs = [...el.querySelectorAll('svg')].filter(svg => {
                 const r = svg.getBoundingClientRect();
                 if (r.width <= 0) return false;
-                if (rowRect.width > 0 && (r.left - rowRect.left) < 34) return false;
+                if (rowRect.width > 0 && (r.left - rowRect.left) < 34) return false; // skip rank medal on far left
                 if (nameRect && nameRect.width > 0 && r.left >= nameRect.left + 4) return false;
                 return true;
             });
@@ -816,11 +689,13 @@
         const flagRect = flagRefEl ? flagRefEl.getBoundingClientRect() : null;
         const nameRect = nameTextNode?.parentElement ? nameTextNode.parentElement.getBoundingClientRect() : null;
 
+        // Middle user avatar <img> (after flag, never rank medal)
         const avatarImgEl = imgs.find(img =>
             !(img.src || '').includes('flagcdn') &&
             !isMedalOrRankImg(img, flagRefEl)
         ) || null;
 
+        // Middle user avatar <svg> (if row uses default blue SVG icon instead of photo <img>)
         const avatarSvgEl = [...el.querySelectorAll('svg')].find(svg => {
             if (svg === flagSvgEl) return false;
             const r = svg.getBoundingClientRect();
@@ -883,6 +758,7 @@
     }
 
     function applyFlagToRow(row, targetHref, targetFlagCode, forceOverlay) {
+        // Always update <use> if present
         if (row.flagUseEl && targetHref) {
             if (row.flagUseEl.getAttribute('href') !== targetHref) {
                 row.flagUseEl.setAttribute('href', targetHref);
@@ -899,6 +775,7 @@
             }
         }
 
+        // If row does NOT have <use> with #flag- (or forceOverlay is true), use crisp circular flagcdn <img> and hide original <svg> completely
         const shouldUseImgOverlay = Boolean(targetFlagCode && (forceOverlay || !row.flagUseEl));
 
         if (shouldUseImgOverlay && row.flagSvgEl) {
@@ -941,6 +818,7 @@
                 if (row.avatarSvgEl) row.avatarSvgEl.classList.add('qx-hide-orig-el');
             } else if (row.avatarSvgEl) {
                 if (userAvatar !== DEFAULT_USER_AVATAR_SVG) {
+                    // User has a real custom profile photo -> show it over the default SVG slot
                     row.avatarSvgEl.classList.add('qx-hide-orig-el');
                     let avImg = customOverlay;
                     if (!avImg && row.avatarSvgEl.parentNode) {
@@ -953,6 +831,7 @@
                         avImg.classList.remove('qx-hide-orig-el');
                     }
                 } else {
+                    // Keep Quotex's clean default blue user SVG
                     if (customOverlay) customOverlay.classList.add('qx-hide-orig-el');
                     row.avatarSvgEl.classList.remove('qx-hide-orig-el');
                 }
@@ -960,6 +839,7 @@
             return;
         }
 
+        // Non-user / shifted rows
         const desiredSrc = targetAvatarSrc || '';
         if (row.avatarImgEl) {
             if (customOverlay) customOverlay.classList.add('qx-hide-orig-el');
@@ -1085,7 +965,7 @@
         const currentBalance = getBalance();
         if (currentBalance === null) return;
         const startCap = parseFloat(
-            (window.qxCustomStartingCapital || '').replace(/[^0-9.-]/g, '')
+            (window.qxCustomStartingCapital || '').replace(/[^0-9.]/g, '')
         ) || 0;
         const profitAmount = currentBalance - startCap;
 
@@ -1137,15 +1017,15 @@
         const card = findLeaderboardCard();
         if (!card) return;
 
-        const customName = window.qxCustomName || panelConfig.customName || 'Trader Eyasin X';
+        const customName = window.qxCustomName || 'Trader Eyasin X';
         const startCap = parseFloat(
-            (window.qxCustomStartingCapital || '').replace(/[^0-9.-]/g, '')
+            (window.qxCustomStartingCapital || '').replace(/[^0-9.]/g, '')
         ) || currentBalance || 0;
         const profitAmount = currentBalance !== null ? currentBalance - startCap : 0;
         const absProfit = Math.abs(profitAmount);
-        const formattedProfit = (profitAmount < 0 ? '-$' : '$') + absProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const formattedProfit = '$' + absProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         const isLoss = profitAmount < 0;
-        const activeCountry = window.qxCustomCountry || panelConfig.country || 'Bangladesh';
+        const activeCountry = window.qxCustomCountry || 'Bangladesh';
         const countryCode = countryFlagMap[activeCountry] || 'bd';
         const flagUrl = `https://flagcdn.com/24x18/${countryCode}.png`;
 
@@ -1214,15 +1094,27 @@
         fixLeaderboardPositionAndList(card, customName, formattedProfit, isLoss, countryCode);
     }
 
-    // --- 10. TIER LOGIC (<5000 standard, >=5000 +2% pro, >=10000 +4% vip) & DEMO ACCOUNT ROW + SPOOF DEMO BALANCE ---
+    // --- 10. TIER LOGIC (<5000 standard, >=5000 +2% pro, >=10000 +4% vip) & DEMO ACCOUNT ROW ---
     function getTierInfo(balance) {
         if (balance >= 10000) {
-            return { iconId: 'icon-profile-level-vip', label: 'vip:', profitText: '+4% profit' };
+            return {
+                iconId: 'icon-profile-level-vip',
+                label: 'vip:',
+                profitText: '+4% profit'
+            };
         }
         if (balance >= 5000) {
-            return { iconId: 'icon-profile-level-pro', label: 'pro:', profitText: '+2% profit' };
+            return {
+                iconId: 'icon-profile-level-pro',
+                label: 'pro:',
+                profitText: '+2% profit'
+            };
         }
-        return { iconId: 'icon-profile-level-standart', label: 'standard:', profitText: '+0% profit' };
+        return {
+            iconId: 'icon-profile-level-standart',
+            label: 'standard:',
+            profitText: '+0% profit'
+        };
     }
 
     function getLevel(balance) {
@@ -1235,7 +1127,6 @@
 
         if (profitNodes.length === 0) {
             document.querySelectorAll('div, span').forEach(el => {
-                if (el.closest('#qx-control-overlay, #qx-tx-overlay')) return;
                 if (el.children.length === 0 && /^\+\d+%\s*profit$/i.test((el.textContent || '').trim())) {
                     profitNodes.push(el);
                 }
@@ -1290,7 +1181,6 @@
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
         let node;
         while ((node = walker.nextNode())) {
-            if (node.parentElement && node.parentElement.closest('#qx-control-overlay, #qx-tx-overlay')) continue;
             const t = (node.nodeValue || '').trim();
             if (/^(live|demo)\s+account$/i.test(t) && node.parentElement) {
                 labelNodes.push(node);
@@ -1331,27 +1221,6 @@
                         const linkEl = item.row.tagName === 'A' ? item.row : item.row.querySelector('a');
                         if (linkEl) linkEl.classList.remove('active');
                         item.row.classList.remove('active');
-
-                        // Apply Spoof Demo Balance if configured
-                        if (panelConfig.spoofDemoBalance !== '' && panelConfig.spoofDemoBalance !== null) {
-                            const spoofVal = parseFloat(panelConfig.spoofDemoBalance);
-                            if (Number.isFinite(spoofVal) && spoofVal >= 0) {
-                                const formattedSpoof = '$' + spoofVal.toLocaleString('en-US', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2
-                                });
-                                const tw = document.createTreeWalker(item.row, NodeFilter.SHOW_TEXT, null, false);
-                                let tn;
-                                while ((tn = tw.nextNode())) {
-                                    if (tn.nodeValue && tn.nodeValue.includes('$')) {
-                                        if (tn.nodeValue.trim() !== formattedSpoof) {
-                                            tn.nodeValue = formattedSpoof;
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
-                        }
                     }
                 } else {
                     if (item.textNode.nodeValue.trim() !== 'Live Account') {
@@ -1423,7 +1292,6 @@
         if (mainBalance === '$0.00') return;
 
         document.querySelectorAll('div, span').forEach(el => {
-            if (el.closest('#qx-control-overlay, #qx-tx-overlay')) return;
             if (el.textContent && el.textContent.trim() === 'The daily limit is not set') {
                 const parent = el.parentElement;
                 if (parent) {
@@ -1441,419 +1309,7 @@
         });
     }
 
-    // --- 11. FAKE PAYMENTS / TRANSACTIONS HISTORY INJECTOR (/en/balance, /en/transactions, etc.) ---
-    function renderFakePaymentsHistory() {
-        if (!panelConfig.transactions || panelConfig.transactions.length === 0) return;
-
-        // Find the "Transaction ID" + "Amount" header row on Quotex's Payments/Balance page
-        const headerCandidates = [...document.querySelectorAll('div, tr, thead')].filter(el => {
-            if (el.closest('#qx-control-overlay, #qx-tx-overlay, .qx-fake-tx-container')) return false;
-            const t = (el.innerText || '').trim();
-            return t.includes('Transaction ID') && t.includes('Amount') && t.length < 100;
-        });
-
-        if (headerCandidates.length === 0) return;
-        headerCandidates.sort((a, b) => (a.innerText || '').length - (b.innerText || '').length);
-        const headerRow = headerCandidates[0];
-        const tableContainer = headerRow.parentElement;
-        if (!tableContainer) return;
-
-        // Hide original transaction rows or "empty transactions" message inside tableContainer
-        [...tableContainer.children].forEach(child => {
-            if (child === headerRow || child.classList.contains('qx-fake-tx-container')) return;
-            if (!child.classList.contains('qx-hide-orig-el')) {
-                child.classList.add('qx-hide-orig-el');
-            }
-        });
-
-        let fakeBox = tableContainer.querySelector('.qx-fake-tx-container');
-        const signature = JSON.stringify(panelConfig.transactions);
-
-        if (!fakeBox) {
-            fakeBox = document.createElement('div');
-            fakeBox.className = 'qx-fake-tx-container';
-            headerRow.insertAdjacentElement('afterend', fakeBox);
-        }
-
-        if (fakeBox.dataset.sig === signature) return;
-        fakeBox.dataset.sig = signature;
-
-        fakeBox.innerHTML = panelConfig.transactions.map(tx => {
-            const isDep = tx.type === 'Deposit';
-            const amt = Number(tx.amount || 0).toFixed(2);
-            const signAmt = isDep ? `+$${amt}` : `-$${amt}`;
-            return `
-                <div class="qx-fake-pay-row">
-                    <div class="qx-fake-pay-left">
-                        <div class="qx-fake-pay-id">${escapeHtml(tx.id)}</div>
-                        <div class="qx-fake-pay-date">${escapeHtml(tx.dateTime)}</div>
-                        <div class="qx-fake-pay-status">Successed</div>
-                    </div>
-                    <div class="qx-fake-pay-right">
-                        <div class="${isDep ? 'qx-fake-pay-amt-dep' : 'qx-fake-pay-amt-pay'}">${signAmt}</div>
-                        <div class="qx-fake-pay-method">${escapeHtml(tx.method)}</div>
-                        <div class="qx-fake-pay-type">${isDep ? 'Deposit' : 'Payout'}</div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
-    function escapeHtml(str) {
-        return String(str ?? '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
-    }
-
-    // --- 12. INTERACTIVE CONTROL PANEL & FAKE TRANSACTIONS MODAL UI ---
-    function showToast(msg) {
-        const toast = document.getElementById('qx-toast');
-        if (!toast) return;
-        toast.textContent = msg;
-        toast.style.setProperty('display', 'block', 'important');
-        clearTimeout(toast.__t);
-        toast.__t = setTimeout(() => {
-            toast.style.setProperty('display', 'none', 'important');
-        }, 2000);
-    }
-
-    function initControlPanelUI() {
-        if (!document.body || document.getElementById('qx-gear-btn')) return;
-
-        // Toast
-        const toast = document.createElement('div');
-        toast.id = 'qx-toast';
-        document.body.appendChild(toast);
-
-        // Gear Trigger Button (Draggable)
-        const gearBtn = document.createElement('div');
-        gearBtn.id = 'qx-gear-btn';
-        gearBtn.title = 'Open Control Panel (Alt+X)';
-        gearBtn.style.top = (panelConfig.gearPos?.top ?? 8) + 'px';
-        gearBtn.style.right = (panelConfig.gearPos?.right ?? 8) + 'px';
-        gearBtn.innerHTML = `
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.79 1 1.44 1.07H21a2 2 0 1 1 0 4h-.09c-.65.07-1.18.47-1.51 1.07z"></path>
-            </svg>
-        `;
-        document.body.appendChild(gearBtn);
-
-        // Main Control Panel Overlay
-        const controlOverlay = document.createElement('div');
-        controlOverlay.id = 'qx-control-overlay';
-        controlOverlay.className = 'qx-modal-backdrop';
-        controlOverlay.innerHTML = `
-            <div class="qx-modal-card">
-                <div class="qx-modal-header">
-                    <h3 class="qx-modal-title">0X CONTROL PANEL</h3>
-                    <div class="qx-modal-sub">Leaderboard, Balance & Account Settings</div>
-                </div>
-                <div class="qx-bal-box">
-                    <div class="qx-bal-label">Live Account Balance</div>
-                    <div class="qx-bal-val" id="qx-cp-balance">$0.00</div>
-                </div>
-                <div class="qx-field">
-                    <label class="qx-field-label">Leaderboard Name</label>
-                    <input type="text" class="qx-input" id="qx-cp-name" placeholder="Trader Eyasin X" />
-                </div>
-                <div class="qx-field">
-                    <label class="qx-field-label">Country Flag</label>
-                    <select class="qx-select" id="qx-cp-country">
-                        ${Object.keys(countryFlagMap).map(c => `<option value="${c}">${c}</option>`).join('')}
-                    </select>
-                </div>
-                <div class="qx-field">
-                    <label class="qx-field-label">Net Profit / Loss Display</label>
-                    <div class="qx-input-row">
-                        <input type="number" step="any" class="qx-input" id="qx-cp-profit" placeholder="e.g. 2281.20 or -500" />
-                        <button type="button" class="qx-reset-btn" id="qx-cp-profit-reset" title="Reset Profit to $0">↻</button>
-                    </div>
-                    <div class="qx-hint">
-                        • Positive: Shows as Profit (Green)<br/>
-                        • Negative: Shows as Loss (Red)<br/>
-                        • Logic: Leaderboard = Current Balance - Initial Capital
-                    </div>
-                </div>
-                <div class="qx-field">
-                    <label class="qx-field-label">Spoof Demo Balance (Dropdown Row 2)</label>
-                    <input type="number" step="any" class="qx-input" id="qx-cp-demo-bal" placeholder="e.g. 3658 (leave blank for default)" />
-                </div>
-                <button type="button" class="qx-btn-primary" id="qx-cp-apply">✓ APPLY CHANGES</button>
-                <div class="qx-btn-row">
-                    <button type="button" class="qx-btn-sec" id="qx-cp-analytics-btn">ANALYTICS</button>
-                    <button type="button" class="qx-btn-sec" id="qx-cp-txns-btn">$ TXNS</button>
-                    <button type="button" class="qx-btn-sec" id="qx-cp-close">CLOSE</button>
-                </div>
-                <div class="qx-analytics-box" id="qx-cp-analytics-box"></div>
-            </div>
-        `;
-        document.body.appendChild(controlOverlay);
-
-        // Fake Transactions Overlay
-        const txOverlay = document.createElement('div');
-        txOverlay.id = 'qx-tx-overlay';
-        txOverlay.className = 'qx-modal-backdrop';
-        txOverlay.innerHTML = `
-            <div class="qx-modal-card">
-                <div class="qx-modal-header">
-                    <h3 class="qx-modal-title">FAKE TRANSACTIONS</h3>
-                    <div class="qx-modal-sub">Add custom Deposit & Payout records</div>
-                </div>
-                <div class="qx-tx-list" id="qx-tx-list"></div>
-                <div class="qx-grid-2">
-                    <div class="qx-field">
-                        <label class="qx-field-label">Transaction Type</label>
-                        <select class="qx-select" id="qx-tx-type">
-                            <option value="Deposit">Deposit (+)</option>
-                            <option value="Payout">Payout (-)</option>
-                        </select>
-                    </div>
-                    <div class="qx-field">
-                        <label class="qx-field-label">Amount ($)</label>
-                        <input type="number" step="any" class="qx-input" id="qx-tx-amount" placeholder="e.g. 500.00" />
-                    </div>
-                </div>
-                <div class="qx-grid-2">
-                    <div class="qx-field">
-                        <label class="qx-field-label">Payment Method</label>
-                        <select class="qx-select" id="qx-tx-method">
-                            <option value="Binance Pay">Binance Pay</option>
-                            <option value="USDT (TRC-20)">USDT (TRC-20)</option>
-                            <option value="USDT (ERC-20)">USDT (ERC-20)</option>
-                            <option value="USDT (BEP-20)">USDT (BEP-20)</option>
-                            <option value="Bitcoin">Bitcoin</option>
-                            <option value="Ethereum">Ethereum</option>
-                            <option value="Litecoin">Litecoin</option>
-                            <option value="Dogecoin">Dogecoin</option>
-                            <option value="Tron (TRX)">Tron (TRX)</option>
-                            <option value="Perfect Money">Perfect Money</option>
-                            <option value="UPI">UPI</option>
-                            <option value="Nagad">Nagad</option>
-                            <option value="bKash">bKash</option>
-                            <option value="Rocket">Rocket</option>
-                            <option value="Visa / MasterCard">Visa / MasterCard</option>
-                        </select>
-                    </div>
-                    <div class="qx-field">
-                        <label class="qx-field-label">Date & Time</label>
-                        <input type="text" class="qx-input" id="qx-tx-date" />
-                    </div>
-                </div>
-                <button type="button" class="qx-btn-primary" id="qx-tx-add">+ ADD TRANSACTION</button>
-                <button type="button" class="qx-btn-close" id="qx-tx-close">CLOSE</button>
-            </div>
-        `;
-        document.body.appendChild(txOverlay);
-
-        function refreshControlInputs() {
-            const bal = getBalance() || 0;
-            const startCap = parseFloat((window.qxCustomStartingCapital || '0').replace(/[^0-9.-]/g, '')) || 0;
-            const curProfit = bal - startCap;
-            document.getElementById('qx-cp-balance').textContent =
-                '$' + bal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            document.getElementById('qx-cp-name').value = window.qxCustomName || panelConfig.customName || 'Trader Eyasin X';
-            document.getElementById('qx-cp-country').value = window.qxCustomCountry || panelConfig.country || 'Bangladesh';
-            document.getElementById('qx-cp-profit').value = Number(curProfit.toFixed(2));
-            document.getElementById('qx-cp-demo-bal').value = panelConfig.spoofDemoBalance ?? '';
-            document.getElementById('qx-cp-analytics-box').classList.remove('qx-open');
-        }
-
-        function refreshTxListModal() {
-            const listEl = document.getElementById('qx-tx-list');
-            if (!listEl) return;
-            if (panelConfig.transactions.length === 0) {
-                listEl.innerHTML = `<div style="text-align:center;color:#9ca3af;font-size:12px;padding:10px;">No custom transactions added</div>`;
-                return;
-            }
-            listEl.innerHTML = panelConfig.transactions.map((tx, idx) => {
-                const isDep = tx.type === 'Deposit';
-                return `
-                    <div class="qx-tx-item">
-                        <div>
-                            <div style="font-weight:700;font-size:13px;color:${isDep ? '#0faf59' : '#ef4444'};">
-                                ● ${isDep ? 'Deposit' : 'Payout'} $${Number(tx.amount).toFixed(2)}
-                            </div>
-                            <div style="font-size:11px;color:#9ca3af;">${escapeHtml(tx.method)} • ${escapeHtml(tx.dateTime)}</div>
-                        </div>
-                        <div style="display:flex;align-items:center;gap:6px;">
-                            <span style="font-size:11px;color:#9ca3af;">#${escapeHtml(tx.id)}</span>
-                            <button type="button" class="qx-tx-del" data-idx="${idx}">✕</button>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-
-            listEl.querySelectorAll('.qx-tx-del').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const i = parseInt(btn.getAttribute('data-idx'), 10);
-                    panelConfig.transactions.splice(i, 1);
-                    saveConfig(panelConfig);
-                    refreshTxListModal();
-                    renderFakePaymentsHistory();
-                });
-            });
-        }
-
-        function openControlModal() {
-            refreshControlInputs();
-            controlOverlay.classList.add('qx-open');
-        }
-
-        // Draggable + click support for gearBtn
-        let dragging = false, moved = false, startX = 0, startY = 0, startTop = 8, startRight = 8;
-        gearBtn.addEventListener('pointerdown', e => {
-            dragging = true;
-            moved = false;
-            startX = e.clientX;
-            startY = e.clientY;
-            startTop = parseFloat(gearBtn.style.top) || 8;
-            startRight = parseFloat(gearBtn.style.right) || 8;
-            gearBtn.setPointerCapture?.(e.pointerId);
-        });
-        gearBtn.addEventListener('pointermove', e => {
-            if (!dragging) return;
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
-            if (!moved) return;
-            const newTop = Math.max(4, Math.min(window.innerHeight - 36, startTop + dy));
-            const newRight = Math.max(4, Math.min(window.innerWidth - 36, startRight - dx));
-            gearBtn.style.top = newTop + 'px';
-            gearBtn.style.right = newRight + 'px';
-        });
-        gearBtn.addEventListener('pointerup', () => {
-            if (!dragging) return;
-            dragging = false;
-            if (moved) {
-                panelConfig.gearPos = {
-                    top: parseFloat(gearBtn.style.top) || 8,
-                    right: parseFloat(gearBtn.style.right) || 8
-                };
-                saveConfig(panelConfig);
-            } else {
-                openControlModal();
-            }
-        });
-
-        window.addEventListener('keydown', e => {
-            if (e.altKey && (e.key === 'x' || e.key === 'X')) {
-                if (controlOverlay.classList.contains('qx-open')) {
-                    controlOverlay.classList.remove('qx-open');
-                } else {
-                    openControlModal();
-                }
-            }
-        });
-
-        document.getElementById('qx-cp-close').addEventListener('click', () => {
-            controlOverlay.classList.remove('qx-open');
-        });
-        controlOverlay.addEventListener('click', e => {
-            if (e.target === controlOverlay) controlOverlay.classList.remove('qx-open');
-        });
-
-        document.getElementById('qx-cp-profit-reset').addEventListener('click', () => {
-            document.getElementById('qx-cp-profit').value = '0';
-        });
-
-        document.getElementById('qx-cp-apply').addEventListener('click', () => {
-            const newName = document.getElementById('qx-cp-name').value.trim() || 'Trader Eyasin X';
-            const newCountry = document.getElementById('qx-cp-country').value || 'Bangladesh';
-            const desiredProfit = parseFloat(document.getElementById('qx-cp-profit').value);
-            const demoBalVal = document.getElementById('qx-cp-demo-bal').value.trim();
-
-            const curBal = getBalance() || 0;
-            const targetProfit = Number.isFinite(desiredProfit) ? desiredProfit : 0;
-            const newStartCap = (curBal - targetProfit).toFixed(2);
-
-            window.qxCustomName = newName;
-            window.qxCustomCountry = newCountry;
-            window.qxCustomStartingCapital = newStartCap;
-
-            panelConfig.customName = newName;
-            panelConfig.country = newCountry;
-            panelConfig.startingCapital = newStartCap;
-            panelConfig.spoofDemoBalance = demoBalVal;
-            saveConfig(panelConfig);
-
-            fix();
-            controlOverlay.classList.remove('qx-open');
-            showToast('Changes Applied Successfully!');
-        });
-
-        document.getElementById('qx-cp-analytics-btn').addEventListener('click', () => {
-            const box = document.getElementById('qx-cp-analytics-box');
-            if (box.classList.contains('qx-open')) {
-                box.classList.remove('qx-open');
-                return;
-            }
-            const bal = getBalance() || 0;
-            const startCap = parseFloat((window.qxCustomStartingCapital || '0').replace(/[^0-9.-]/g, '')) || 0;
-            const net = bal - startCap;
-            const tier = getTierInfo(bal);
-            box.innerHTML = `
-                <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-                    <span style="color:#9ca3af;">Account Tier:</span>
-                    <strong style="color:#fff;">${tier.label.replace(':', '').toUpperCase()} (${tier.profitText})</strong>
-                </div>
-                <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-                    <span style="color:#9ca3af;">Initial Capital:</span>
-                    <strong style="color:#fff;">$${startCap.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-                </div>
-                <div style="display:flex;justify-content:space-between;">
-                    <span style="color:#9ca3af;">Net Profit / Loss:</span>
-                    <strong style="color:${net < 0 ? '#ef4444' : '#0faf59'};">${net < 0 ? '-$' : '+$'}${Math.abs(net).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-                </div>
-            `;
-            box.classList.add('qx-open');
-        });
-
-        document.getElementById('qx-cp-txns-btn').addEventListener('click', () => {
-            controlOverlay.classList.remove('qx-open');
-            document.getElementById('qx-tx-date').value = formatNowDateTime();
-            document.getElementById('qx-tx-amount').value = '';
-            refreshTxListModal();
-            txOverlay.classList.add('qx-open');
-        });
-
-        document.getElementById('qx-tx-close').addEventListener('click', () => {
-            txOverlay.classList.remove('qx-open');
-        });
-        txOverlay.addEventListener('click', e => {
-            if (e.target === txOverlay) txOverlay.classList.remove('qx-open');
-        });
-
-        document.getElementById('qx-tx-add').addEventListener('click', () => {
-            const type = document.getElementById('qx-tx-type').value;
-            const amount = parseFloat(document.getElementById('qx-tx-amount').value);
-            const method = document.getElementById('qx-tx-method').value;
-            const dateTime = document.getElementById('qx-tx-date').value.trim() || formatNowDateTime();
-
-            if (!Number.isFinite(amount) || amount <= 0) {
-                showToast('Enter a valid amount!');
-                return;
-            }
-
-            panelConfig.transactions.unshift({
-                id: generateTxId(),
-                type,
-                amount,
-                method,
-                dateTime
-            });
-            saveConfig(panelConfig);
-            document.getElementById('qx-tx-amount').value = '';
-            document.getElementById('qx-tx-date').value = formatNowDateTime();
-            refreshTxListModal();
-            renderFakePaymentsHistory();
-            showToast(`${type} $${amount.toFixed(2)} Added!`);
-        });
-    }
-
-    // --- 13. AGGRESSIVE LIVE GUARD & FLICK-OFF OBSERVER ---
+    // --- 11. AGGRESSIVE LIVE GUARD & FLICK-OFF OBSERVER ---
     function guardLive() {
         cleanUrl();
         cleanTitle();
@@ -1865,9 +1321,7 @@
             const txt = node.nodeValue;
             if (!txt) continue;
             const parent = node.parentElement;
-            if (parent && parent.closest('[data-qx-account="demo"], #qx-control-overlay, #qx-tx-overlay, #qx-gear-btn, #qx-toast, .qx-fake-tx-container')) {
-                continue;
-            }
+            if (parent && parent.closest('[data-qx-account="demo"]')) continue;
             if (/demo\s+account/i.test(txt)) continue;
 
             if (txt.includes('demo-trade') || txt.includes('Demo trading') || /\bDEMO\b/.test(txt)) {
@@ -1952,14 +1406,12 @@
     }
 
     function fix() {
-        initControlPanelUI();
         const balance = getBalance() || 0;
         guardLive();
         fixAccountAndIcon(balance);
         fixBalancesAndUI();
         fixLeaderboardUI();
         updateProfitLine();
-        renderFakePaymentsHistory();
         cleanTitle();
     }
 
@@ -1970,7 +1422,6 @@
     let lastKnownBalance = null;
     window.qxBalanceInterval = setInterval(() => {
         if (!document.body) return;
-        initControlPanelUI();
         const balance = getBalance();
         if (balance !== null && balance !== lastKnownBalance) {
             lastKnownBalance = balance;
@@ -1982,7 +1433,6 @@
         guardLive();
         fixLeaderboardUI();
         updateProfitLine();
-        renderFakePaymentsHistory();
         cleanTitle();
     }, 2);
 
@@ -2009,5 +1459,5 @@
         });
     }
 
-    console.log("0X Premium Full Suite with Control Panel & Fake Transactions Active!");
+    console.log("0X Premium Secure Loader with Sync DOM Interceptor Active!");
 })();
